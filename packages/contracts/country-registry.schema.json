@@ -2,13 +2,15 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "country-registry.schema.json",
   "title": "CountryRegistry",
-  "description": "One document per country stored in MongoDB's `countries` collection. The backend upserts this automatically when it receives a worker message. The frontend reads it to discover available countries and their indicators — no hardcoding.",
+  "description": "One document per country stored in MongoDB's `countries` collection. The backend upserts this automatically as worker messages arrive. The frontend reads it to discover available levels, themes, indicators, and periods — so nothing is hardcoded in the UI.",
   "type": "object",
   "required": [
     "country_code",
     "country_name",
-    "region_type",
+    "levels",
+    "themes",
     "available_indicators",
+    "periods",
     "workers",
     "last_scraped"
   ],
@@ -21,21 +23,38 @@
     },
     "country_name": {
       "type": "string",
-      "description": "Display name in English, e.g. Brazil"
+      "description": "Display name in the country's language, e.g. Brasil"
     },
-    "region_type": {
-      "type": "string",
-      "description": "Administrative division type for this country, e.g. state"
-    },
-    "available_indicators": {
+    "levels": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "List of indicator keys available for at least one region. Derived from all RegionData documents for this country."
+      "description": "Administrative division levels present, in zoom order, e.g. [UF, municipio]"
+    },
+    "themes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["demographics", "wealth", "infrastructure", "public_services"]
+      },
+      "description": "Themes for which at least one indicator exists"
+    },
+    "available_indicators": {
+      "type": "object",
+      "description": "Indicator keys present, grouped by theme. Derived from all snapshot documents for this country.",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "periods": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Periods present, e.g. [2022, 2023]. Powers the (later) year slider."
     },
     "workers": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Names of data source workers that have provided data, e.g. [ibge, datasus, aneel]"
+      "description": "Names of data-source workers that have provided data, e.g. [ibge, siconfi, datasus, aneel, transparencia]"
     },
     "last_scraped": {
       "type": "string",

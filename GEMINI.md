@@ -4,114 +4,139 @@ Project guide for AI coding assistants and human contributors. Read this file fu
 before making any changes. Per-app GEMINI.md files extend this with service-specific
 conventions — always read the nearest one first, then this root file for the full picture.
 
+> **Companion documents (read these for depth):**
+> - [`README.md`](README.md) — the front door: the idea, the stack, and how to run it.
+> - [`docs/visualization-design-reference.md`](docs/visualization-design-reference.md) —
+>   the agreed-upon design: map modes, themes, indicators, data model, roadmap.
+>   **Treat every decision in that file as already settled.**
+> - [`docs/data-sources-reference.md`](docs/data-sources-reference.md) — every external
+>   API (IBGE, SICONFI, ANEEL, DataSUS, Portal da Transparência): endpoints, auth, limits.
+> - [`docs/agent-teams-reference.md`](docs/agent-teams-reference.md) — how to run Claude
+>   Code agent teams on this project.
+
 ---
 
 ## 1. Project Overview
 
-**What it is:** A portfolio web platform that scrapes public open-data APIs for any
-country, analyzes the data, and visualizes it on an interactive map. Each country's
-administrative regions (states, provinces, departments, etc.) are clickable and hoverable,
-surfacing demographic, economic, financial, health, and energy indicators.
+**What it is:** **Brasil Visualizer** is a portfolio web platform that scrapes Brazilian
+public open-data APIs, analyzes the data with pandas, and visualizes it on an interactive
+map. Every state (UF) — and later every municipality — is clickable and hoverable,
+surfacing demographics, wealth, infrastructure, and public-services indicators.
 
-**Current countries implemented:** Brazil (IBGE, Tesouro Nacional, DataSUS, ANEEL).
+**The idea — "Paradox map modes":** The UX is modeled on the *map mode* pattern from
+Paradox grand-strategy games (Victoria 3, EU4). Each map mode is a discrete choropleth
+lens that recolors the whole country around a single question — *"Where is the standard
+of living highest?"*, *"Which states are most transfer-dependent?"* The user switches
+modes, hovers for a summary, and clicks for a full breakdown. See
+[`docs/visualization-design-reference.md`](docs/visualization-design-reference.md) §1.
+
+**Scope (non-negotiable):** Four themes only — **Demographics, Wealth & Economy,
+Infrastructure, Public Services**. Political parties, electoral results, and ideological
+data are permanently out of scope.
+
+**Current data sources:** IBGE (SIDRA + malhas), Tesouro Nacional (SICONFI), DataSUS,
+ANEEL, Portal da Transparência.
 
 **Deployment context:** Portfolio / local-only. Anyone reviewing it runs the whole stack
-with `docker compose up --build`. Every decision should optimize for "clone and run,"
-not for cloud scale or uptime.
+with `docker compose up --build`. Every decision optimizes for "clone and run," not for
+cloud scale or uptime.
 
 **Key qualities to showcase:**
-- Polyglot architecture (Python workers + Node/NestJS backend).
-- Plugin-style country workers — adding a country means adding a worker, nothing else.
-- Async processing via a message queue.
-- Caching strategy (Redis).
-- Geospatial data handling (GeoJSON).
-- Internationalization (PT-BR / EN, extensible).
-- Containerization (Docker Compose).
+- Polyglot architecture (Python workers + Node/NestJS backend + React frontend).
+- Plugin-style workers — country/source logic is fully isolated behind the worker SDK.
+- Async processing via a message queue (RabbitMQ topic exchange).
+- Time-series-ready data model — adding a new year is an insert, never a migration.
+- Geospatial handling (GeoJSON, two zoom levels; later a GeoPandas spatial join).
+- Derived analytics computed in pandas (fiscal autonomy ratio, infant mortality, composites).
+- Caching strategy (Redis), internationalization (PT-BR / EN), containerization.
 
 ---
 
 ## 2. Core Principle — The Most Important Rule
 
-> **Country-specific knowledge lives ONLY in the workers.**
-> The backend, the database schema, and the frontend must contain ZERO country-specific
-> logic. If you find yourself writing `if country === "BR"` anywhere outside a worker,
-> STOP — that logic belongs in the worker or in the database document.
+> **Source- and country-specific knowledge lives ONLY in the workers.**
+> The backend, the database schema, and the frontend stay generic. If you find yourself
+> writing `if country === "BR"` (or branching on a specific indicator/source) anywhere
+> outside a worker, STOP — that logic belongs in the worker or in the database document.
 
 Corollaries:
-- The backend never imports country names, region lists, or indicator definitions.
-- The frontend discovers available countries and indicators from the API at runtime.
-- A new country is supported by writing a new worker only. No other service changes.
+- The backend never imports country names, region lists, or indicator definitions. It
+  treats `country_code`, `level`, `period`, `theme`, and indicator keys as **opaque data**.
+- The frontend discovers available countries, levels, themes, and indicators from the API
+  at runtime — nothing is hardcoded in components.
+- Brazil is the only country today, but the seams are real: a new country is a new worker.
+
+**What is generic vs. what is data:** `level` (`"UF"` / `"municipio"`), `period`
+(`"2022"`), `theme` (`"demographics"`), and indicator keys are all just **strings the
+backend stores and the frontend renders**. They describe Brazil concretely, but no service
+branches on their values. That is what keeps the platform country-agnostic in mechanism
+while being Brazil-specific in content.
 
 ---
 
 ## 3. Architecture
 
 ```
-Python Worker (BR) \
-Python Worker (US)  -> RabbitMQ (topic exchange) -> NestJS -> MongoDB / Redis -> Vite + React
-Python Worker (XX) /    routing: country.{CODE}.region          |                    |
-                                                          country-agnostic      Leaflet.js
-                                                          REST API              dynamic map
+Python Worker (Brazil) ─┐
+  IBGE / SICONFI / ANEEL │   topic exchange: geodata
+  DataSUS / Transparência │   routing keys:
+                          ├─► RabbitMQ ──► NestJS ──► MongoDB (geometries + snapshots)
+(future) Worker (XX) ─────┘   country.{CODE}.geometry      │          + countries registry
+                              country.{CODE}.region        ├──► Redis (read-through cache)
+                                                           └──► Vite + React + Leaflet.js
+                                                                map modes · two zoom levels
 ```
 
 **Data flow:**
-1. A **Python worker** fetches data from country-specific public APIs, cleans and
-   analyzes it with pandas, and publishes `RegionData` messages to RabbitMQ using the
-   routing key `country.{ISO_CODE}.region`.
-2. **NestJS** consumes ALL country messages via a wildcard subscription (`country.#`),
-   upserts records into **MongoDB**, and invalidates or updates the **Redis** cache.
-3. **Frontend (Vite + React)** calls `/countries` on load, lets the user pick a country,
-   then fetches GeoJSON + indicators from the NestJS API and renders them with
-   **Leaflet.js**.
+1. A **Python worker** fetches data from public APIs, cleans/analyzes it with pandas,
+   computes derived metrics, and publishes two kinds of messages to RabbitMQ:
+   - **geometry messages** (`country.{CODE}.geometry`) — one per region per level, the
+     GeoJSON polygon. Published rarely; polygons almost never change.
+   - **indicator messages** (`country.{CODE}.region`) — one per region **per theme per
+     period**, carrying just that theme's indicator block. Small, idempotent, upsertable.
+2. **NestJS** consumes everything via a wildcard subscription (`country.#`). Geometry
+   messages upsert the `geometries` collection; indicator messages upsert a theme block
+   into the matching `snapshots` document and refresh the `countries` registry. It
+   invalidates/updates the **Redis** cache on write.
+3. **Frontend (Vite + React + Leaflet)** calls `/countries` on load, then fetches geometry
+   (cached hard) and the latest snapshot per level, joins them by `code`, and renders the
+   active **map mode** as a choropleth.
 
 ---
 
 ## 4. Folder Structure
 
 ```
-geodata-platform/
+brasil-visualizer/
   apps/
-    frontend/                  # Vite + React
-      src/
-        locales/
-          en/translation.json
-          pt-BR/translation.json
-    backend/                   # NestJS
-      src/
-        i18n/
-          en/messages.json
-          pt-BR/messages.json
+    frontend/                  # Vite + React + Leaflet   (planned)
+      src/locales/{en,pt-BR}/translation.json
+    backend/                   # NestJS                    (planned)
+      src/i18n/{en,pt-BR}/messages.json
     workers/
-      _template/               # copy this to add a new country
-        main.py
-        requirements.txt
-        Dockerfile
-        README.md
-      brazil/                  # implemented
-        main.py
-        requirements.txt
-        Dockerfile
-      usa/                     # future
+      GEMINI.md                # per-app worker guide
+      _template/               # copy this to add a country/source   (done)
+        main.py · requirements.txt · Dockerfile · README.md
+      brazil/                  # IBGE/SICONFI/DataSUS/ANEEL/Transparência   (planned)
   packages/
-    worker-sdk/                # Python base classes — imported by every worker
-      worker_sdk/
-        __init__.py
-        base_worker.py
-        models.py
-    contracts/                 # JSON schemas for queue messages (language-neutral)
-      region.schema.json
-      country-registry.schema.json
-    shared-types/              # TypeScript types (frontend + backend)
-      src/
-        region.ts
-        country.ts
-  docker-compose.yml           # core stack (no workers)
-  docker-compose.brazil.yml    # extends base, adds brazil worker
-  docker-compose.usa.yml       # future
-  package.json                 # pnpm workspace root
-  GEMINI.md                    # this file
-  README.md
+    worker-sdk/                # Python base classes — imported by every worker (done)
+      worker_sdk/{__init__,base_worker,models}.py
+      pyproject.toml
+    contracts/                 # language-neutral JSON schemas for queue messages (done)
+      geometry.schema.json · region.schema.json · country-registry.schema.json
+    shared-types/              # TypeScript types (frontend + backend)   (planned)
+  infra/
+    rabbitmq/rabbitmq.conf     # lifts guest loopback restriction for local stack (done)
+  docs/                        # deep reference docs (see top of this file)
+  docker-compose.yml           # core stack: mongo + redis + rabbitmq    (done)
+  docker-compose.brazil.yml    # extends base, adds brazil worker        (planned)
+  package.json                 # pnpm workspace root                     (planned)
+  CLAUDE.md · GEMINI.md        # this guide (twin files, kept in sync)
+  README.md                    # main documentation page
 ```
+
+> Status tags reflect the current base. The foundation (worker SDK, contracts, core
+> compose, docs) exists; the three services (brazil worker, backend, frontend) do not yet.
 
 ---
 
@@ -121,15 +146,15 @@ geodata-platform/
 | Tech | Role |
 |---|---|
 | Vite + React | App bundler and UI framework |
-| Leaflet.js | Interactive map — renders GeoJSON regions dynamically |
+| Leaflet.js | Interactive map — renders GeoJSON regions dynamically, drives map modes |
 | OpenStreetMap tiles | Free map background, no API key |
 | react-i18next | PT-BR / EN language switching (extensible) |
-| axios | Calls the NestJS API |
+| axios + TanStack Query | Calls the NestJS API, caches client-side |
 
 **Map rules:**
-- Never hardcode a country's GeoJSON. Load it from `/countries/:code/regions`.
-- Never hardcode indicator names in components. Read them from `/countries/:code/indicators`.
-- If an indicator has no i18n key, fall back to the raw key name — never crash.
+- Never hardcode GeoJSON. Load it from `/countries/:code/geometries?level=…`.
+- Never hardcode indicator or map-mode names. Read them from `/countries/:code/themes`.
+- If an indicator/mode has no i18n key, fall back to the raw key name — never crash.
 - Do NOT use Google Maps. Leaflet + OSM is free, needs no key, and reads GeoJSON natively.
 
 ### Backend
@@ -145,184 +170,216 @@ geodata-platform/
 | Tech | Role |
 |---|---|
 | Python 3.12 | Scraping, cleaning, analysis |
-| worker-sdk | Internal base package (see packages/worker-sdk) |
+| worker-sdk | Internal base package (see `packages/worker-sdk`) |
 | httpx / requests | HTTP calls to public APIs |
-| pandas | Data cleaning and analysis |
+| pandas | Data cleaning, aggregation, derived metrics |
+| pysus | DataSUS access (DBC format) |
+| geopandas | Phase 3 — spatial join of ANEEL plants to municipality polygons |
 | pika | RabbitMQ publisher |
 
 ### Data & Infra
 | Tech | Role |
 |---|---|
-| MongoDB | Stores RegionData documents + country registry |
-| Redis | Caches API responses; TTL 3600s default |
-| RabbitMQ | Topic exchange; routing key `country.{ISO}.region` |
+| MongoDB | `geometries` (static) + `snapshots` (time-series) + `countries` registry |
+| Redis | Read-through cache for API responses; default TTL 3600s (ANEEL 86400s) |
+| RabbitMQ | Topic exchange `geodata`; keys `country.{CODE}.geometry` / `.region` |
 | Docker Compose | Runs the full stack locally |
 
 ---
 
 ## 6. Worker SDK
 
-Every worker inherits from `BaseWorker` in `packages/worker-sdk`. The SDK handles
-RabbitMQ connection, serialization, and publishing. A worker only implements `fetch()`.
+Every worker inherits from `BaseWorker` in `packages/worker-sdk`. The SDK owns the
+RabbitMQ connection, serialization, retry, and publishing. A worker implements `fetch()`.
 
 ```python
-# packages/worker-sdk/worker_sdk/base_worker.py (abbreviated)
-
-class BaseWorker(ABC):
-    @abstractmethod
-    def fetch(self) -> List[RegionData]:
-        """Fetch, clean, and return all region data for this country."""
-        ...
-
-    def run(self):
-        data = self.fetch()
-        self._publish(data)          # handled by SDK
-```
-
-```python
-# A complete country worker — only fetch() is country-specific
+# A worker is just fetch() — all source-specific logic lives here and nowhere else.
 class BrazilWorker(BaseWorker):
     COUNTRY_CODE = "BR"
 
-    def fetch(self) -> List[RegionData]:
-        # call IBGE, DataSUS, ANEEL, etc.
-        # return a list of RegionData objects
+    def fetch(self) -> list[RegionData]:
+        # 1. pull geometry (IBGE malhas) for each level
+        # 2. pull indicators (SIDRA, SICONFI, DataSUS, ANEEL, Transparência)
+        # 3. compute derived metrics in pandas
+        # 4. return RegionData objects; the SDK publishes geometry + per-theme messages
         ...
 
 BrazilWorker(rabbitmq_url=os.getenv("RABBITMQ_URL")).run()
 ```
 
-**RegionData fields** (defined in `packages/contracts/region.schema.json`):
+### Message model (evolved — time-series + themes + levels)
 
-| Field | Type | Example |
-|---|---|---|
-| `country_code` | str | `"BR"` (ISO 3166-1 alpha-2) |
-| `region_type` | str | `"state"` / `"province"` / `"department"` |
-| `region_code` | str | `"SP"` |
-| `region_name` | str | `"São Paulo"` |
-| `source` | str | `"IBGE"` |
-| `scraped_at` | ISO datetime | `"2024-01-01T00:00:00Z"` |
-| `geometry` | GeoJSON dict | `{ "type": "Polygon", ... }` |
-| `indicators` | dict of IndicatorValue | see below |
+Workers emit two message shapes. Both are keyed by `country_code + level + code`.
 
-**IndicatorValue fields:**
-
-| Field | Type | Example |
-|---|---|---|
-| `value` | float | `46000000` |
-| `unit` | str | `"people"` / `"%"` / `"USD"` |
-| `year` | int | `2022` |
-| `source` | str | `"IBGE Census 2022"` |
-
+**Geometry message** → routing key `country.{CODE}.geometry` → `geometries` collection:
 ```json
 {
+  "country_code": "BR",
+  "level": "UF",
+  "code": "35",
+  "parent_code": null,
+  "name": "São Paulo",
+  "abbrev": "SP",
+  "geometry": { "type": "MultiPolygon", "coordinates": [] }
+}
+```
+
+**Indicator message** (one per region **per theme per period**) → routing key
+`country.{CODE}.region` → upserts a theme block into the `snapshots` document:
+```json
+{
+  "country_code": "BR",
+  "level": "UF",
+  "code": "35",
+  "parent_code": null,
+  "period": "2022",
+  "theme": "demographics",
+  "source": "IBGE",
+  "fetched_at": "2024-01-15T12:00:00Z",
   "indicators": {
-    "population":    { "value": 46000000, "unit": "people", "year": 2022, "source": "IBGE" },
-    "gdp_usd":       { "value": 900000000, "unit": "USD",   "year": 2021, "source": "IBGE" },
-    "literacy_rate": { "value": 96.8,      "unit": "%",     "year": 2022, "source": "IBGE" }
+    "population":      { "value": 44400000, "unit": "people",      "year": 2022, "source": "IBGE Census 2022" },
+    "population_density": { "value": 178.0, "unit": "people/km2",  "year": 2022, "source": "IBGE" },
+    "literacy_rate":   { "value": 97.3,     "unit": "%",           "year": 2022, "source": "IBGE" }
   }
 }
 ```
+
+**IndicatorValue** = `{ value: float, unit: str, year: int, source: str }`.
+
+Why per-theme messages: they stay small, let the backend upsert one theme without
+rewriting the whole snapshot, and let slow sources (SICONFI at 1 req/s) publish
+independently of fast ones.
+
+> **Implementation status:** The SDK (`packages/worker-sdk/worker_sdk/models.py`,
+> `base_worker.py`) and the contracts (`packages/contracts/geometry.schema.json`,
+> `region.schema.json`, `country-registry.schema.json`) implement exactly this model.
+> `RegionData.geometry_message()` and `.indicator_messages()` produce the two message
+> shapes; `add_indicator(theme, key, …)` enforces the four-theme grouping.
 
 ---
 
 ## 7. MongoDB Schema
 
-### regions collection
+Three collections. Geometry is split from indicator data so large polygons are never
+duplicated across periods, and `period` is first-class so new years are inserts.
+
+### `geometries` — static, rarely changes
 ```json
 {
-  "country_code": "BR",
-  "region_type": "state",
-  "region_code": "SP",
-  "region_name": "São Paulo",
-  "source": "IBGE",
-  "scraped_at": "2024-01-01T00:00:00Z",
-  "geometry": { "type": "Polygon", "coordinates": [] },
+  "country_code": "BR", "level": "UF", "code": "35",
+  "parent_code": null, "name": "São Paulo", "abbrev": "SP",
+  "geometry": { "type": "MultiPolygon", "coordinates": [] }
+}
+```
+Index: `{ country_code: 1, level: 1, code: 1 }` (unique).
+For municipalities, `level: "municipio"` and `parent_code` holds the UF code (e.g. `"35"`).
+
+### `snapshots` — grows over time (one doc per region per period)
+```json
+{
+  "country_code": "BR", "level": "UF", "code": "35",
+  "parent_code": null, "period": "2022", "fetched_at": "2024-01-15T00:00:00Z",
   "indicators": {
-    "population": { "value": 46000000, "unit": "people", "year": 2022 }
+    "demographics":    { "population": { "value": 44400000, "unit": "people", "year": 2022 } },
+    "wealth":          { },
+    "infrastructure":  { },
+    "public_services": { }
   }
 }
 ```
+Indexes: `{ country_code: 1, level: 1, code: 1, period: 1 }` (unique);
+`{ country_code: 1, level: 1, period: 1 }` (map-wide queries).
+The backend upserts each arriving theme into `indicators.<theme>` — never overwrites the
+whole document.
 
-Indexes:
-```
-{ country_code: 1 }
-{ country_code: 1, region_code: 1 }   // unique
-```
-
-### countries collection (registry)
+### `countries` — registry (one doc per country)
 ```json
 {
   "country_code": "BR",
   "country_name": "Brasil",
-  "region_type": "state",
-  "available_indicators": ["population", "gdp_usd", "literacy_rate"],
-  "workers": ["ibge", "datasus", "aneel"],
-  "last_scraped": "2024-01-01T00:00:00Z"
+  "levels": ["UF", "municipio"],
+  "themes": ["demographics", "wealth", "infrastructure", "public_services"],
+  "available_indicators": { "demographics": ["population", "literacy_rate"], "...": [] },
+  "periods": ["2022"],
+  "workers": ["ibge", "siconfi", "datasus", "aneel", "transparencia"],
+  "last_scraped": "2024-01-15T00:00:00Z"
 }
 ```
+The backend upserts this whenever a message arrives. The frontend reads it to know which
+levels, themes, indicators, and periods exist — no frontend hardcoding.
 
-The backend upserts this document whenever a worker message arrives, keeping it current.
-The frontend reads it to know what indicators to show — no frontend hardcoding.
-
-**Important:** Store raw IBGE and other source data under the original field names in the
-source language. Translate only UI labels on the frontend via i18n keys.
+**Important:** Store raw source data under the original PT-BR field names. Translate only
+UI labels on the frontend via i18n keys. `period` is always a **string** — never a Date.
 
 ---
 
 ## 8. RabbitMQ — Topic Exchange
 
-Exchange name: `geodata`
-Exchange type: `topic`
-Routing key pattern: `country.{ISO_CODE}.region`
+Exchange `geodata`, type `topic`. Two routing-key suffixes per country:
 
 ```
-country.BR.region   <- Brazil worker publishes here
-country.US.region   <- future USA worker
-country.AR.region   <- future Argentina worker
+country.BR.geometry   <- region polygons        -> geometries collection
+country.BR.region     <- per-theme indicators    -> snapshots collection
+country.US.region     <- future USA worker
 ```
 
-NestJS subscribes to `country.#` to receive all countries in one consumer. If you need
-country-specific consumers later, subscribe to `country.BR.#` separately — the routing
-key structure supports it without any schema change.
+NestJS subscribes to `country.#` to receive everything in one consumer and routes by the
+suffix. Country-specific consumers (`country.BR.#`) remain possible without schema change.
 
 ---
 
-## 9. NestJS API — Country-Agnostic Endpoints
+## 9. NestJS API — Country-Agnostic, Level- & Period-Aware
 
 ```
-GET /countries                            # list all available countries
-GET /countries/:code                      # country metadata + available indicators
-GET /countries/:code/regions              # all regions with GeoJSON + indicators
-GET /countries/:code/regions/:region      # single region detail
-GET /countries/:code/indicators           # indicator list for this country
+GET /countries                                              # registry list
+GET /countries/:code                                        # levels, themes, indicators, periods
+GET /countries/:code/themes                                 # themes + indicators + per-level availability
+GET /countries/:code/geometries?level=UF                    # GeoJSON FeatureCollection for a level
+GET /countries/:code/periods?level=UF                       # available periods (powers the year slider)
+GET /countries/:code/regions?level=UF&period=latest         # all regions' indicators at a level
+GET /countries/:code/regions/:region?level=UF&period=latest # single region snapshot
+GET /countries/:code/regions/:region/children?level=municipio&period=latest  # children of a region
 ```
 
-No endpoint path, controller, or service contains a country name or hardcoded region list.
-`:code` drives everything. The frontend calls these without knowing which country is active.
+`:code`, `level`, and `period` drive everything; `period=latest` resolves to the newest
+stored period. No path, controller, or service contains a country name or hardcoded
+region list. The frontend joins `/geometries` (cached hard) with `/regions` by `code`.
+
+> **Mapping to the design reference:** `docs/visualization-design-reference.md` §2 sketches
+> friendly routes like `/states` and `/states/:uf/municipalities`. Those map onto the
+> generic routes above (`/regions?level=UF` and `/regions/:uf/children?level=municipio`).
+> The generic form is canonical here to preserve §2; the design doc's names are the
+> human-facing concepts the frontend presents.
 
 ---
 
-## 10. Frontend — Dynamic Map Pattern
+## 10. Frontend — Dynamic Map & Map Modes
 
 ```tsx
-// On mount: discover available countries
-const { data: countries } = useQuery('/countries');
+const { data: country }   = useQuery('/countries/BR');                       // levels, themes
+const { data: geometries } = useQuery('/countries/BR/geometries?level=UF');  // cached hard
+const { data: regions }    = useQuery('/countries/BR/regions?level=UF&period=latest');
 
-// On country select: load GeoJSON + data
-const { data: regions } = useQuery(`/countries/${selectedCode}/regions`);
-
-// Render
-L.geoJSON(regions, {
-  onEachFeature: (feature, layer) => {
-    layer.on({ mouseover: highlight, mouseout: reset, click: showPanel });
-  }
+// Join geometry + indicators by `code`, color by the active map mode.
+L.geoJSON(geometries, {
+  style: (f) => colorScale(regions[f.properties.code], activeMode),
+  onEachFeature: (f, layer) =>
+    layer.on({ mouseover: showTooltip, mouseout: reset, click: openSidebar }),
 }).addTo(map);
 ```
 
-The indicator panel reads from `/countries/:code/indicators` — never from a hardcoded list.
-i18n keys for indicators live under the `indicators` namespace; fall back to the raw key
-if a translation is missing.
+**Map-mode UX** (full spec: design reference §5–§7):
+- A **mode switcher** (one active mode at a time) recolors the whole map per theme/metric.
+- **Hover** → tooltip with the region name + 1–2 key metrics for the active mode.
+- **Click a state** → zoom in, load municipality geometry + `level=municipio` data, open
+  the sidebar breakdown. **Click background / back** → return to the UF view.
+- Modes unavailable at the current level (e.g. *Fiscal Health* at municipality level) are
+  greyed out with a "state-level only" label — driven by the per-level availability from
+  `/themes`, never hardcoded.
+- **Color scales:** sequential for totals/ranks; diverging for ratios with a meaningful
+  midpoint (growth rate, fiscal balance). Legend always visible, updates with the mode.
+
+i18n keys for indicators and modes fall back to the raw key if a translation is missing.
 
 ---
 
@@ -339,25 +396,27 @@ Supported languages: **PT-BR (default/fallback)** and **EN**. Extensible to othe
 Rules:
 - Add every new user-facing string to BOTH `en` and `pt-BR` files simultaneously.
 - Never hard-code display text in React components.
-- Indicator key names (e.g. `"population"`) are data, not i18n keys — translate them
-  under `indicators.population` in the translation files.
-- If a translation key is missing, fall back silently — never throw or display a raw key
-  path to the user.
+- Indicator keys (`"population"`), theme keys (`"demographics"`), and map-mode keys are
+  **data, not i18n keys** — translate them under the `indicators` / `themes` / `modes`
+  namespaces. Raw source field names (IBGE PT-BR names) are never exposed in the UI.
+- If a translation key is missing, fall back silently — never throw or show a raw key path.
 
 ---
 
 ## 12. Docker Compose Strategy
 
 ```bash
-# Full stack + Brazil worker
-docker compose -f docker-compose.yml -f docker-compose.brazil.yml up --build
-
-# Core stack only (no workers — useful for backend development)
+# Core stack only: mongo + redis + rabbitmq (runnable today)
 docker compose up --build
 
-# Future: add USA worker
-docker compose -f docker-compose.yml -f docker-compose.brazil.yml -f docker-compose.usa.yml up --build
+# Full stack + Brazil worker (once the worker exists)
+docker compose -f docker-compose.yml -f docker-compose.brazil.yml up --build
 ```
+
+The core `docker-compose.yml` currently brings up the three infrastructure services with
+healthchecks; `backend` and `frontend` service blocks are present but commented until
+those apps are scaffolded. RabbitMQ mounts `infra/rabbitmq/rabbitmq.conf` so the default
+`guest` user works across the Compose network.
 
 Local ports:
 | Service | Port |
@@ -373,136 +432,135 @@ Backend env vars:
 ```
 MONGO_URL=mongodb://mongo:27017/geodata
 REDIS_URL=redis://redis:6379
-RABBITMQ_URL=amqp://rabbitmq:5672
+RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
 ```
 
 Worker env vars:
 ```
-RABBITMQ_URL=amqp://rabbitmq:5672
-WORKER_LANG=pt-BR          # or en, for log language
+RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+WORKER_LANG=pt-BR                 # or en, for log language
+TRANSPARENCIA_API_KEY=...         # Portal da Transparência token (Brazil worker only)
 ```
 
 ---
 
-## 13. Adding a New Country — Step by Step
+## 13. Adding a New Country & Indicator Vocabulary
 
+### Steps
 1. Copy `apps/workers/_template/` to `apps/workers/{country_name}/`.
-2. Set `COUNTRY_CODE` to the ISO 3166-1 alpha-2 code.
-3. Set `REGION_TYPE` to the administrative division type for that country.
-4. Implement `fetch()` — call the country's public APIs, return `List[RegionData]`.
-5. Map source indicator names to the shared indicator vocabulary (see below).
-6. Add `docker-compose.{country}.yml` following the existing Brazil example.
-7. Add i18n translations for any new indicator keys in `en` and `pt-BR`.
-8. Update `README.md` to list the new country and its data sources.
+2. Set `COUNTRY_CODE` (ISO 3166-1 alpha-2) and the level names for that country.
+3. Implement `fetch()` — call public APIs, compute derived metrics, return `RegionData`.
+4. Map source fields to the theme/indicator vocabulary below.
+5. Add `docker-compose.{country}.yml` following the Brazil example.
+6. Add i18n translations for any new indicator/theme keys in `en` and `pt-BR`.
+7. Update `README.md` to list the new country and its data sources.
 
 **No changes needed in:** backend, frontend, MongoDB schema, RabbitMQ config, Redis.
 
-### Shared indicator vocabulary
-Use consistent snake_case keys across all countries so the frontend can compare indicators
-cross-country in the future:
+### Themes & indicator vocabulary
 
-| Key | Meaning | Unit |
-|---|---|---|
-| `population` | Total population | people |
-| `population_density` | People per km² | people/km² |
-| `gdp_usd` | GDP in USD | USD |
-| `gdp_per_capita_usd` | GDP per capita | USD |
-| `gini_coefficient` | Income inequality | 0–1 |
-| `literacy_rate` | Adult literacy | % |
-| `urbanization_rate` | Urban population share | % |
-| `unemployment_rate` | Unemployment | % |
-| `hdi` | Human Development Index | 0–1 |
-| `hospital_beds_per_1k` | Hospital beds per 1,000 people | beds/1k |
+Indicators are grouped under four **themes**. Use consistent snake_case keys. This is the
+canonical summary; full per-level (N3/N6) availability, SIDRA table IDs, and derived-metric
+formulas live in [`docs/visualization-design-reference.md`](docs/visualization-design-reference.md) §4.
 
-Add new keys when a worker has genuinely new data. Document them here.
+| Theme | Example indicator keys |
+|---|---|
+| `demographics` | `population`, `population_density`, `age_structure`, `urbanization_rate`, `literacy_rate`, `birth_rate`, `death_rate` |
+| `wealth` | `gdp_total`, `gdp_by_sector`, `household_income_avg`, `gini_coefficient`, `employment_by_sector`, `companies_by_sector`, `bolsa_familia_coverage`, `fiscal_autonomy_ratio`, `public_debt_per_capita` |
+| `infrastructure` | `hospital_beds_per_100k`, `physicians_per_100k`, `energy_capacity_mw`, `energy_mix_hydro`, `energy_mix_solar`, `energy_mix_wind`, `energy_mix_thermal` |
+| `public_services` | `infant_mortality_rate`, `vaccination_coverage`, `social_program_beneficiaries`, `public_social_spending`, `federal_servants_density` |
+
+**Derived metrics** (computed in the worker's pandas pipeline, published pre-computed —
+the backend never re-derives): `fiscal_autonomy_ratio` (own revenue ÷ total revenue),
+`infant_mortality_rate` (deaths <1yr ÷ live births × 1000, joining SIM + SINASC),
+`pib_per_capita`, plus the standard-of-living composite. Add new keys here when a worker
+has genuinely new data.
 
 ---
 
-## 14. Brazil Worker — Data Sources Reference
+## 14. Brazil Worker — Data Sources
 
-All free. Portal da Transparência requires a free Gov.br token stored in env vars.
+Full endpoints, parameters, auth, and rate limits:
+[`docs/data-sources-reference.md`](docs/data-sources-reference.md). Quick map:
 
-### IBGE — no key required
-Base: `https://servicodados.ibge.gov.br/api/v3/`
+| Source | Auth | Rate limit | Provides | Level |
+|---|---|---|---|---|
+| **IBGE** SIDRA + malhas | none | none (be respectful) | demographics, GDP, income, Gini, employment, geometry | N3 + N6 |
+| **SICONFI** (Tesouro) | none | **1 req/sec — strict** | budget, transfers, debt, fiscal autonomy | UF only |
+| **DataSUS** (pysus) | none | none | hospital beds, physicians, infant mortality, vaccination | N3 + N6 |
+| **ANEEL** SIGA | none | none (CSV download) | energy capacity + mix | UF now; N6 = Phase 3 spatial join |
+| **Portal da Transparência** | **Gov.br token** | be careful | Bolsa Família, federal servants | native municipality |
 
+IBGE geometry endpoints:
 ```
-# State GeoJSON boundaries
+# State (UF / N3) boundaries
 GET /malhas/paises/BR?resolucao=UF&formato=application/vnd.geo+json
-
-# Municipalities for a state
-GET /localidades/estados/{UF}/municipios
+# Municipality (N6) boundaries within a state
+GET /malhas/estados/{UF}?resolucao=5&formato=application/vnd.geo+json
 ```
 
-SIDRA aggregate tables (verify IDs at `servicodados.ibge.gov.br/api/docs/agregados?versao=3`):
-
-| Indicator | Table |
-|---|---|
-| Population 2022 Census | 9514 |
-| Population by age/sex | 9906 |
-| Literacy rate | 9543 |
-| Urbanization rate | 1378 |
-| Average household income | 7435 |
-| Population density | 1301 |
-| Birth/death rates | 2612 |
-| GDP by sector (PIB) | 5938 |
-| Industrial production index | 3653 |
-| Agricultural production (PAM) | 1612 |
-| Livestock production (PPM) | 3939 |
-| Companies by sector (CEMPRE) | 6450 |
-| Employed workers per industry | 6461 |
-| Gini coefficient | 7435 |
-| HDI components | 9818 |
-
-> ⚠️ SIDRA table IDs drift over time. Always verify a table ID against the live API
-> before wiring a new indicator. The 2022 census moved data to new tables vs. 2010.
-
-### Tesouro Nacional / Siconfi — no key required
-```
-http://apidatalake.tesouro.gov.br/docs/siconfi/
-```
-State budget execution, public debt, revenue vs expenditure. JSON output.
-
-### Portal da Transparência — free Gov.br token required (store in env var)
-```
-https://portaldatransparencia.gov.br/api-de-dados
-```
-Bolsa Família, federal spending, contracts, public servants.
-
-### DataSUS (health) — no key required
-```
-http://tabnet.datasus.gov.br
-```
-Hospital beds, mortality rates, disease incidence, vaccination coverage.
-
-### ANEEL (energy) — no key required
-```
-https://dadosabertos.aneel.gov.br
-```
-Power plant locations, generation capacity, energy mix (solar, hydro, wind).
-
-### dados.gov.br (meta-directory) — free token required
-```
-https://dados.gov.br/swagger-ui/index.html
-```
-Directory of hundreds of additional government datasets.
+> ⚠️ SIDRA table IDs drift over time. Always verify a table ID against
+> `GET /agregados/{table}/metadados` before wiring an indicator. Never trust a table ID
+> from memory or training data.
 
 ---
 
 ## 15. Conventions for AI Assistants
 
 **Always do:**
-- Read the nearest `GEMINI.md` (per-app) before the root one.
-- Keep the backend and frontend 100% country-agnostic.
-- Use the shared indicator vocabulary when mapping new data fields.
+- Read the nearest `GEMINI.md` (per-app), then this root file, then the relevant `docs/`.
+- Treat `docs/visualization-design-reference.md` decisions as settled.
+- Keep the backend and frontend country-agnostic — `level`, `period`, `theme`, and
+  indicator keys are opaque data they store and render, never branch on.
+- Group indicators by the four themes; use the snake_case vocabulary in §13.
+- Compute derived metrics in the worker (pandas); publish them pre-computed.
+- Keep `period` a string and split geometry from indicator data.
 - Add i18n keys for both `en` and `pt-BR` at the same time.
 - Verify SIDRA table IDs against the live IBGE API — never trust them from memory.
-- Keep API keys and tokens in env vars; never hard-code them.
-- Read Redis before MongoDB on all read paths.
+- Throttle SICONFI to ≤1 req/sec; paginate Portal da Transparência until empty.
+- Keep API keys/tokens in env vars; read Redis before MongoDB on read paths.
 
 **Never do:**
-- Write `if country === "BR"` (or any country code) outside a worker.
-- Hardcode a list of states, provinces, or regions in the backend or frontend.
-- Hardcode indicator names or units in React components.
+- Write `if country === "BR"` (or branch on a level/theme/indicator value) outside a worker.
+- Hardcode a list of states, municipalities, indicators, or map modes in backend/frontend.
+- Add political-party, electoral, or ideological data — permanently out of scope.
+- Overwrite a whole snapshot document — upsert one theme block at a time.
+- Duplicate polygons per period — geometry lives in its own collection.
 - Reintroduce Google Maps — Leaflet + OSM only.
 - Add cloud infra, auth providers, or deployment config unless explicitly asked.
-- Trust a SIDRA table ID from training data — always verify live.
+
+---
+
+## 16. Map Modes
+
+Each map mode is one choropleth lens (design reference §5 has the full table + UI rules):
+
+| Mode | Primary source | Choropleth variable | Level |
+|---|---|---|---|
+| Demographics (default) | IBGE SIDRA | population density | N3 + N6 |
+| Standard of Living | IBGE + DataSUS | composite index | N3 + N6 |
+| Economic Profile | IBGE SIDRA 5938 | dominant sector % | N3 (N6 to verify) |
+| Workforce Structure | IBGE SIDRA 6461 | sector employment % | N3 + N6 |
+| Fiscal Health | SICONFI RREO + RGF | fiscal autonomy ratio | UF only |
+| Energy Matrix | ANEEL SIGA | capacity MW / mix % | UF now; N6 Phase 3 |
+| Public Health | DataSUS | infant mortality rate | N3 + N6 |
+| Social Coverage | Transparência + IBGE | Bolsa Família % | N3 + N6 |
+
+Per-level availability is served by `/countries/:code/themes` and drives which modes are
+enabled at the current zoom — never hardcoded.
+
+---
+
+## 17. Implementation Roadmap
+
+- **Phase 1 — UF level, all 4 themes.** The portfolio deliverable. Highest-impact,
+  most-available indicators: population, literacy, average income, GDP by sector, hospital
+  beds, energy mix, infant mortality. Map-mode switching + sidebar working end to end.
+- **Phase 2 — Municipality (N6) level** for Demographics, Wealth, Public Services. Same
+  schema and zoom interaction; mainly a second scraping pass and the children endpoint.
+- **Phase 3 — Municipality Infrastructure (ANEEL).** GeoPandas spatial join of plant
+  coordinates against IBGE municipality polygons — the most technically interesting piece.
+
+Build order for the base: **Brazil worker (Phase 1 `fetch()`) → backend consumer + API →
+frontend map.** Throttling and retry must be built into the worker from the start, not
+bolted on — a full N6 pass touches ~5,570 municipalities.

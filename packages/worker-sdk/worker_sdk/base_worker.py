@@ -2,11 +2,16 @@
 BaseWorker — abstract base class for all country workers.
 
 A country worker only needs to:
-  1. Set COUNTRY_CODE and REGION_TYPE as class attributes.
+  1. Set COUNTRY_CODE as a class attribute.
   2. Implement fetch() to return a list of RegionData.
 
-Everything else (RabbitMQ connection, serialization, publishing, error handling,
-retry logic) is handled here. Do NOT add country-specific logic to this file.
+Everything else (RabbitMQ connection, serialization, publishing, retry logic) is handled
+here. Each RegionData is split into wire messages and published on two routing keys:
+
+  * country.{CODE}.geometry  -> region polygons      (geometry.schema.json)
+  * country.{CODE}.region    -> per-theme indicators  (region.schema.json)
+
+Do NOT add country-specific logic to this file.
 """
 
 import json
@@ -28,16 +33,16 @@ class BaseWorker(ABC):
     """
     Abstract base for all country data workers.
 
-    Subclass this, set COUNTRY_CODE + REGION_TYPE, implement fetch(), done.
+    Subclass this, set COUNTRY_CODE, implement fetch(), done.
     """
 
-    # Subclasses must set these
+    # Subclasses must set this
     COUNTRY_CODE: str = ""          # ISO 3166-1 alpha-2, e.g. "BR"
-    REGION_TYPE: str = ""           # e.g. "state", "province", "department"
 
     EXCHANGE_NAME = "geodata"
     EXCHANGE_TYPE = "topic"
-    ROUTING_KEY_TEMPLATE = "country.{country_code}.region"
+    GEOMETRY_ROUTING_KEY = "country.{country_code}.geometry"
+    INDICATOR_ROUTING_KEY = "country.{country_code}.region"
 
     MAX_RETRIES = 3
     RETRY_DELAY = 5  # seconds
@@ -46,10 +51,6 @@ class BaseWorker(ABC):
         if not self.COUNTRY_CODE:
             raise NotImplementedError(
                 f"{self.__class__.__name__} must define COUNTRY_CODE"
-            )
-        if not self.REGION_TYPE:
-            raise NotImplementedError(
-                f"{self.__class__.__name__} must define REGION_TYPE"
             )
 
         self.rabbitmq_url = rabbitmq_url or os.getenv(
@@ -66,10 +67,9 @@ class BaseWorker(ABC):
         Fetch, clean, and return all region data for this country.
 
         This is the ONLY method a worker needs to implement. All country-specific
-        knowledge (API endpoints, field mapping, data cleaning) lives here.
-
-        Returns a list of RegionData objects using the shared indicator vocabulary
-        documented in CLAUDE.md section 13.
+        knowledge (API endpoints, field mapping, data cleaning, derived metrics) lives
+        here. Return one RegionData per region per period, grouping indicators by theme
+        with the vocabulary documented in CLAUDE.md section 13.
         """
         ...
 
@@ -92,9 +92,12 @@ class BaseWorker(ABC):
     # ------------------------------------------------------------------
 
     def _publish(self, regions: List[RegionData]) -> None:
-        """Publish all RegionData objects to the topic exchange, with retries."""
-        routing_key = self.ROUTING_KEY_TEMPLATE.format(
-            country_code=self.COUNTRY_CODE
+        """Publish geometry + per-theme indicator messages, with connection retries."""
+        geometry_key = self.GEOMETRY_ROUTING_KEY.format(country_code=self.COUNTRY_CODE)
+        indicator_key = self.INDICATOR_ROUTING_KEY.format(country_code=self.COUNTRY_CODE)
+        props = pika.BasicProperties(
+            content_type="application/json",
+            delivery_mode=2,  # persistent
         )
 
         for attempt in range(1, self.MAX_RETRIES + 1):
@@ -109,24 +112,38 @@ class BaseWorker(ABC):
                     durable=True,
                 )
 
+                geometry_count = 0
+                indicator_count = 0
                 for region in regions:
-                    channel.basic_publish(
-                        exchange=self.EXCHANGE_NAME,
-                        routing_key=routing_key,
-                        body=json.dumps(region.to_dict()),
-                        properties=pika.BasicProperties(
-                            content_type="application/json",
-                            delivery_mode=2,  # persistent
-                        ),
-                    )
+                    geometry_msg = region.geometry_message()
+                    if geometry_msg is not None:
+                        channel.basic_publish(
+                            exchange=self.EXCHANGE_NAME,
+                            routing_key=geometry_key,
+                            body=json.dumps(geometry_msg),
+                            properties=props,
+                        )
+                        geometry_count += 1
+
+                    for indicator_msg in region.indicator_messages():
+                        channel.basic_publish(
+                            exchange=self.EXCHANGE_NAME,
+                            routing_key=indicator_key,
+                            body=json.dumps(indicator_msg),
+                            properties=props,
+                        )
+                        indicator_count += 1
 
                 connection.close()
                 logger.info(
-                    "[%s] Published %d messages to exchange=%s routing_key=%s",
+                    "[%s] Published %d geometry + %d indicator messages "
+                    "to exchange=%s (keys: %s, %s)",
                     self.__class__.__name__,
-                    len(regions),
+                    geometry_count,
+                    indicator_count,
                     self.EXCHANGE_NAME,
-                    routing_key,
+                    geometry_key,
+                    indicator_key,
                 )
                 return
 

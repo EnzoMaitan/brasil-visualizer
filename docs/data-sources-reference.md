@@ -23,17 +23,29 @@ Each section covers base URLs, endpoints, authentication, parameters, available 
 
 ### Key Endpoints
 
-#### Geography (state boundaries)
+#### Geography (boundaries — two zoom levels)
 
 ```
+# UF / N3 — all 27 state polygons
 GET /malhas/paises/BR?resolucao=UF&formato=application/vnd.geo+json
 ```
 Returns all 27 UF polygons as GeoJSON. Feed directly into Leaflet's `L.geoJSON()`.
+This is the **default (UF) zoom level**.
+
+```
+# Municipio / N6 — all municipality polygons within one state
+GET /malhas/estados/{UF}?resolucao=5&formato=application/vnd.geo+json
+```
+Returns the municipality polygons for a single state as GeoJSON. This is the
+**second (municipality) zoom level**, loaded when the user clicks into a state.
+`{UF}` accepts the IBGE numeric UF code (e.g. `35` for SP) or the abbreviation.
+`resolucao=5` selects the municipal mesh resolution.
 
 ```
 GET /localidades/estados/{UF}/municipios
 ```
-Returns all municipalities within a state.
+Returns the list of municipalities within a state (codes + names, no geometry) — useful
+for building the `code → name` lookup and for iterating N6 SIDRA queries.
 
 ```
 GET /localidades/estados

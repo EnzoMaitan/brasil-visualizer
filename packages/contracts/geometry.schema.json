@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "geometry.schema.json",
+  "title": "RegionGeometryMessage",
+  "description": "A region's polygon, published by a worker to RabbitMQ on routing key country.{CODE}.geometry. The backend upserts it into the `geometries` collection. Geometry is published separately from indicator data and is decoupled from `period`, so large polygons are never duplicated across years. Published rarely — boundaries almost never change.",
+  "type": "object",
+  "required": [
+    "country_code",
+    "level",
+    "code",
+    "name",
+    "geometry"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "country_code": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$",
+      "description": "ISO 3166-1 alpha-2 country code, e.g. BR"
+    },
+    "level": {
+      "type": "string",
+      "description": "Administrative division level name, e.g. UF or municipio"
+    },
+    "code": {
+      "type": "string",
+      "description": "Region code at this level, e.g. 35"
+    },
+    "parent_code": {
+      "type": ["string", "null"],
+      "description": "Parent region code (e.g. the UF code for a municipio), or null at the top level"
+    },
+    "name": {
+      "type": "string",
+      "description": "Full display name of the region in its native language, e.g. São Paulo"
+    },
+    "abbrev": {
+      "type": ["string", "null"],
+      "description": "Short display code where one exists, e.g. SP. Null if not applicable."
+    },
+    "geometry": {
+      "type": "object",
+      "description": "GeoJSON geometry (Polygon or MultiPolygon)",
+      "required": ["type", "coordinates"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["Polygon", "MultiPolygon"]
+        },
+        "coordinates": {
+          "type": "array"
+        }
+      }
+    }
+  }
+}

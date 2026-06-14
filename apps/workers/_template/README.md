@@ -10,7 +10,6 @@ cp -r apps/workers/_template apps/workers/{country_name}
 
 # 2. Edit main.py
 #    - Set COUNTRY_CODE (ISO 3166-1 alpha-2, e.g. "US", "AR", "DE")
-#    - Set REGION_TYPE  ("state" | "province" | "department" | ...)
 #    - Implement fetch() — all country logic lives here
 
 # 3. Add a compose override
@@ -23,36 +22,46 @@ docker compose -f docker-compose.yml -f docker-compose.{country}.yml up --build
 
 ## What fetch() must return
 
-A `List[RegionData]`. Each object covers one administrative region with:
+A `List[RegionData]` — one object **per region per period**. Each object covers one
+administrative region at one level and period:
 
 | Field | Required | Notes |
 |---|---|---|
 | `country_code` | ✅ | ISO 3166-1 alpha-2 |
-| `region_type` | ✅ | Match `REGION_TYPE` class attr |
-| `region_code` | ✅ | Short identifier |
-| `region_name` | ✅ | Native language display name |
+| `level` | ✅ | Division level name, e.g. `"state"` / `"UF"` / `"municipio"` |
+| `code` | ✅ | Region code at this level |
+| `name` | ✅ | Native-language display name |
+| `period` | ✅ | Reference period as a **string**, e.g. `"2022"` |
+| `parent_code` | — | Parent region code for sub-regions (e.g. UF code for a municipio) |
+| `abbrev` | — | Short display code, e.g. `"SP"` |
 | `source` | ✅ | Primary data source name |
-| `geometry` | ✅ | GeoJSON Polygon or MultiPolygon |
-| `indicators` | ✅ | At least one; use shared vocabulary |
+| `geometry` | — | GeoJSON Polygon/MultiPolygon; published once, separately |
+| `indicators` | ✅ | At least one, added via `add_indicator(theme, …)` |
 
-## Shared indicator vocabulary
+Add indicators grouped by theme:
 
-Use these keys so the frontend can display indicators consistently across countries:
+```python
+region.add_indicator("demographics", "population", 44_400_000, "people", 2022, "IBGE")
+```
 
-| Key | Unit | Description |
-|---|---|---|
-| `population` | people | Total population |
-| `population_density` | people/km² | Population density |
-| `gdp_usd` | USD | GDP in US dollars |
-| `gdp_per_capita_usd` | USD | GDP per capita |
-| `gini_coefficient` | 0–1 | Income inequality |
-| `literacy_rate` | % | Adult literacy rate |
-| `urbanization_rate` | % | Share of urban population |
-| `unemployment_rate` | % | Unemployment rate |
-| `hdi` | 0–1 | Human Development Index |
-| `hospital_beds_per_1k` | beds/1k | Hospital beds per 1,000 people |
+The SDK turns each `RegionData` into a geometry message (`country.{CODE}.geometry`) plus
+one indicator message per theme (`country.{CODE}.region`).
 
-If your source has an indicator not in this list, add it here **and** in CLAUDE.md §13.
+## Themes & indicator vocabulary
+
+Indicators are grouped under four themes. Use consistent snake_case keys; the full
+vocabulary and per-level availability live in the root `CLAUDE.md` §13 and
+`docs/visualization-design-reference.md`.
+
+| Theme | Example keys |
+|---|---|
+| `demographics` | `population`, `population_density`, `urbanization_rate`, `literacy_rate` |
+| `wealth` | `gdp_total`, `household_income_avg`, `gini_coefficient`, `fiscal_autonomy_ratio` |
+| `infrastructure` | `hospital_beds_per_100k`, `physicians_per_100k`, `energy_capacity_mw` |
+| `public_services` | `infant_mortality_rate`, `vaccination_coverage`, `federal_servants_density` |
+
+If your source has an indicator not yet listed, add it under the right theme here **and**
+in CLAUDE.md §13.
 
 ## Finding data sources for a new country
 
