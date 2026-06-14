@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "country-registry.schema.json",
+  "title": "CountryRegistry",
+  "description": "One document per country stored in MongoDB's `countries` collection. The backend upserts this automatically when it receives a worker message. The frontend reads it to discover available countries and their indicators — no hardcoding.",
+  "type": "object",
+  "required": [
+    "country_code",
+    "country_name",
+    "region_type",
+    "available_indicators",
+    "workers",
+    "last_scraped"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "country_code": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$",
+      "description": "ISO 3166-1 alpha-2, e.g. BR"
+    },
+    "country_name": {
+      "type": "string",
+      "description": "Display name in English, e.g. Brazil"
+    },
+    "region_type": {
+      "type": "string",
+      "description": "Administrative division type for this country, e.g. state"
+    },
+    "available_indicators": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of indicator keys available for at least one region. Derived from all RegionData documents for this country."
+    },
+    "workers": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Names of data source workers that have provided data, e.g. [ibge, datasus, aneel]"
+    },
+    "last_scraped": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of the most recent successful scrape"
+    }
+  }
+}

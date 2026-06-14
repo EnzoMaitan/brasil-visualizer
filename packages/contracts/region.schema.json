@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "region.schema.json",
+  "title": "RegionData",
+  "description": "A single administrative region published by a country worker to the geodata RabbitMQ exchange. This is the contract between workers (Python) and the backend (NestJS). Both sides must conform to this schema. Do not add country-specific fields.",
+  "type": "object",
+  "required": [
+    "country_code",
+    "region_type",
+    "region_code",
+    "region_name",
+    "source",
+    "scraped_at",
+    "geometry",
+    "indicators"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "country_code": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$",
+      "description": "ISO 3166-1 alpha-2 country code, e.g. BR, US, AR"
+    },
+    "region_type": {
+      "type": "string",
+      "enum": ["state", "province", "department", "canton", "territory", "region", "district"],
+      "description": "The administrative division type used by this country"
+    },
+    "region_code": {
+      "type": "string",
+      "description": "Short code for the region, e.g. SP, CA, BA"
+    },
+    "region_name": {
+      "type": "string",
+      "description": "Full display name of the region in its native language"
+    },
+    "source": {
+      "type": "string",
+      "description": "Primary data source name, e.g. IBGE, Census Bureau, INDEC"
+    },
+    "scraped_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of when the data was scraped"
+    },
+    "geometry": {
+      "type": "object",
+      "description": "GeoJSON geometry (Polygon or MultiPolygon)",
+      "required": ["type", "coordinates"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["Polygon", "MultiPolygon"]
+        },
+        "coordinates": {
+          "type": "array"
+        }
+      }
+    },
+    "indicators": {
+      "type": "object",
+      "description": "Map of indicator key to IndicatorValue. Keys must come from the shared vocabulary in CLAUDE.md section 13.",
+      "additionalProperties": {
+        "$ref": "#/$defs/IndicatorValue"
+      }
+    }
+  },
+  "$defs": {
+    "IndicatorValue": {
+      "type": "object",
+      "required": ["value", "unit", "year"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": "number",
+          "description": "The measured value"
+        },
+        "unit": {
+          "type": "string",
+          "description": "Unit of measurement, e.g. people, %, USD, beds/1k"
+        },
+        "year": {
+          "type": "integer",
+          "description": "Reference year of the data"
+        },
+        "source": {
+          "type": "string",
+          "description": "Specific source citation, e.g. IBGE Census 2022"
+        }
+      }
+    }
+  }
+}

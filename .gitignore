@@ -19,22 +19,23 @@ node_modules/
 package-lock.json.bak
 
 # ─── Vite (frontend) ──────────────────────────────────────────────────────────
-frontend/dist/
-frontend/.vite/
-frontend/dist-ssr/
-frontend/*.local
+# Monorepo lives under apps/ — keep these path-agnostic.
+dist/
+**/dist/
+.vite/
+**/.vite/
+dist-ssr/
+*.local
 
 # ─── NestJS (backend) ─────────────────────────────────────────────────────────
-backend/dist/
-backend/.tsbuildinfo
+build/
+**/build/
 
 # ─── TypeScript ───────────────────────────────────────────────────────────────
 *.tsbuildinfo
 tsconfig.tsbuildinfo
 
-# ─── Python worker ────────────────────────────────────────────────────────────
-worker/__pycache__/
-worker/**/__pycache__/
+# ─── Python workers & worker-sdk ──────────────────────────────────────────────
 **/__pycache__/
 *.py[cod]
 *$py.class
@@ -46,14 +47,12 @@ worker/**/__pycache__/
 venv/
 env/
 ENV/
-worker/.venv/
-worker/venv/
+**/.venv/
+**/venv/
 
 # Distribution / packaging
-worker/dist/
-worker/build/
-worker/*.egg-info/
-worker/.eggs/
+**/*.egg-info/
+.eggs/
 *.egg
 *.whl
 MANIFEST
