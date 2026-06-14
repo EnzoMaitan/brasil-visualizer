@@ -1,0 +1,113 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# geodata-platform — core stack (infrastructure + app services, NO workers)
+#
+#   docker compose up --build                      # core stack only
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.brazil.yml up  # core + Brazil worker
+#
+# Service hostnames on the `geodata` network match the env-var URLs documented in
+# CLAUDE.md §12: mongo, redis, rabbitmq.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ─── Infrastructure ────────────────────────────────────────────────────────
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - geodata
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - geodata
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # management UI (http://localhost:15672, guest/guest)
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - geodata
+
+  # ─── Application services ───────────────────────────────────────────────────
+  # Enable these once apps/backend and apps/frontend are scaffolded. Their build
+  # contexts don't exist yet, so they stay commented to keep `up --build` working
+  # for the infrastructure above.
+
+  # backend:
+  #   build:
+  #     context: .
+  #     dockerfile: apps/backend/Dockerfile
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     MONGO_URL: mongodb://mongo:27017/geodata
+  #     REDIS_URL: redis://redis:6379
+  #     RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+  #   depends_on:
+  #     mongo:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     rabbitmq:
+  #       condition: service_healthy
+  #   networks:
+  #     - geodata
+
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: apps/frontend/Dockerfile
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5173:5173"
+  #   environment:
+  #     # Browser-facing: must be reachable from the host, not the service name.
+  #     VITE_API_URL: http://localhost:3000
+  #   depends_on:
+  #     - backend
+  #   networks:
+  #     - geodata
+
+networks:
+  geodata:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  redis-data:
+  rabbitmq-data:
