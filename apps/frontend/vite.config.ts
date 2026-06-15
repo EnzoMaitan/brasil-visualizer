@@ -4,6 +4,17 @@ import react from "@vitejs/plugin-react";
 // Brasil Visualizer frontend. Port 5173 per the root CLAUDE.md.
 export default defineConfig({
   plugins: [react()],
-  server: { port: 5173, host: true },
-  preview: { port: 5173 },
+  server: {
+    port: 5173,
+    host: true,
+    headers: {
+      "Cache-Control": "no-store",
+    },
+  },
+  preview: {
+    port: 5173,
+    headers: {
+      "Cache-Control": "no-store",
+    },
+  },
 });

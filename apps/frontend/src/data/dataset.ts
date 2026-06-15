@@ -11,7 +11,16 @@
 import { BR_DATA as SYNTHETIC } from "./synthetic";
 import type { StateRecord } from "./types";
 
-const API_BASE = (import.meta.env.VITE_API_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+const getApiBase = (): string => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL.replace(/\/+$/, "");
+  }
+  // If no env var is set, default to port 3000 on the same host the page was loaded from.
+  const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
+  return `http://${host}:3000`;
+};
+
+const API_BASE = getApiBase();
 
 export type DataSource = "loading" | "live" | "synthetic";
 
