@@ -28,13 +28,12 @@ npm run dev      # → http://localhost:5173
 The app calls the **live NestJS API** ([`src/data/dataset.ts`](src/data/dataset.ts)):
 it discovers the country/level/periods from `/countries`, fetches `/regions`, and adapts
 the nested-by-theme payload into the flat record the map modes use. Set `VITE_API_URL` to
-point at the backend (default `http://localhost:3000`). The top-bar badge shows **"Live ·
-IBGE"** when connected.
+point at the backend (default `http://localhost:3000`).
 
 If the API is unreachable it falls back to the bundled **synthetic** data
-([`src/data/synthetic.ts`](src/data/synthetic.ts)) so the UI still runs standalone — the
-badge flips to "Illustrative data". Today the IBGE worker feeds **Demographics** and
-**Economic Profile**; the other modes are greyed until their source workers land. Map
+([`src/data/synthetic.ts`](src/data/synthetic.ts)) so the UI still runs standalone
+(`BR_DATA.source` records which is active). Today the IBGE worker feeds **Demographics**
+and **Economic Profile**; the other modes are greyed until their source workers land. Map
 geometry is the bundled IBGE outline (real borders deferred).
 
 To see live data: run the backend (`apps/backend`, needs the seeded `mongo` container),

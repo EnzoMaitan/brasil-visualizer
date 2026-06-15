@@ -6,9 +6,10 @@ import { makeT } from "./i18n";
 import type { Lang } from "./data/types";
 import { BR_DATA, loadData } from "./data/dataset";
 import { MODE_BY_KEY, makeScale, availableModeKeys, PALETTES, paletteKeys } from "./viz/modes";
+import type { Mode } from "./viz/modes";
 import { BrazilMap } from "./components/BrazilMap";
 import { Legend, Tooltip, Detail, Overview } from "./components/panels";
-import { ModeSwitcher, Search, YearSlider, LangToggle, DataBadge, GearButton, Brand } from "./components/controls";
+import { ModeSwitcher, Search, YearSlider, LangToggle, GearButton, Brand } from "./components/controls";
 import { useTweaks } from "./components/tweaks/useTweaks";
 import type { TweakValues } from "./components/tweaks/useTweaks";
 import { TweaksPanel, TweakSection, TweakSlider, TweakToggle, TweakSelect } from "./components/tweaks/TweaksPanel";
@@ -44,6 +45,7 @@ export default function App() {
   });
   const [hovered, setHovered] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [metricProp, setMetricProp] = useState<string | null>(null);
   const [tw, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [ready, setReady] = useState(false);
@@ -76,7 +78,33 @@ export default function App() {
     if (ready && modeKeyEff !== modeKey) setModeKey(modeKeyEff);
   }, [ready, modeKeyEff, modeKey]);
 
-  const mode = MODE_BY_KEY[modeKeyEff] ?? MODE_BY_KEY.demographics;
+  // Switching mode clears any per-indicator override (back to the mode's default metric).
+  useEffect(() => { setMetricProp(null); }, [modeKeyEff]);
+
+  const baseMode = MODE_BY_KEY[modeKeyEff] ?? MODE_BY_KEY.demographics;
+
+  // A clicked indicator (in the detail panel) overrides the choropleth variable: the whole
+  // map recolors by that metric on a sequential scale. No override → the mode's default.
+  const mode = useMemo<Mode>(() => {
+    if (!metricProp) return baseMode;
+    const ind = baseMode.indicators.find((i) => i.prop === metricProp);
+    if (!ind) return baseMode;
+    return {
+      ...baseMode,
+      scale: "seq",
+      prop: ind.prop,
+      kind: ind.kind,
+      dir: ind.dir,
+      mid: undefined,
+      categories: undefined,
+      headlineProp: undefined,
+      headlineKind: undefined,
+    };
+  }, [baseMode, metricProp]);
+
+  // Toggle: clicking the active metric returns to the mode's default choropleth.
+  const onMetric = (prop: string) => setMetricProp((p) => (p === prop ? null : prop));
+
   const scale = useMemo(() => makeScale(mode, records, tw.palette), [mode, records, tw.palette]);
 
   const ctx = useMemo<VizContextValue>(() => ({ t, locale: lang, lang, tweaks: tw }), [t, lang, tw]);
@@ -114,7 +142,6 @@ export default function App() {
           <div className="topbar-right">
             <Search onSelect={(c) => setSelected(c)} onHover={setHovered} />
             <LangToggle lang={lang} onChange={setLang} />
-            <DataBadge />
             <GearButton onClick={() => setTweaksOpen((o) => !o)} />
           </div>
         </header>
@@ -133,7 +160,7 @@ export default function App() {
 
           <aside className="rail rail-right">
             {selected
-              ? <Detail code={selected} mode={mode} scale={scale} records={records} onClose={() => setSelected(null)} />
+              ? <Detail code={selected} mode={mode} scale={scale} records={records} onMetric={onMetric} onClose={() => setSelected(null)} />
               : <Overview mode={mode} scale={scale} records={records} onHover={setHovered} onSelect={setSelected} />}
           </aside>
         </main>

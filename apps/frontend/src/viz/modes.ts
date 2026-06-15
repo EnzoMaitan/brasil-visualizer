@@ -254,6 +254,7 @@ export function makeScale(mode: Mode, records: StateRecord[], paletteKey: string
     return {
       kind: "div", min: lo, mid, max: hi, rawMin: min, rawMax: max,
       colorOf: (d) => sampleRamp(pal.div, ((d[mode.prop!] as number) - lo) / (hi - lo)),
+      catColor: (c) => pal.cat[c] || "oklch(0.7 0 0)",
       sampleAt: (v) => sampleRamp(pal.div, (v - lo) / (hi - lo)),
     };
   }
@@ -261,6 +262,7 @@ export function makeScale(mode: Mode, records: StateRecord[], paletteKey: string
   return {
     kind: "seq", min, max,
     colorOf: (d) => sampleRamp(pal.seq, ((d[mode.prop!] as number) - min) / (max - min)),
+    catColor: (c) => pal.cat[c] || "oklch(0.7 0 0)",
     sampleAt: (v) => sampleRamp(pal.seq, (v - min) / (max - min)),
   };
 }

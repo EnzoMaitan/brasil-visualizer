@@ -41,8 +41,8 @@ nested-by-theme shape into the flat `StateRecord`** the modes consume (renaming
 deriving `dominant_sector`). `BR_DATA.source` is `"live"` or `"synthetic"`.
 
 If the API is unreachable it falls back to `src/data/synthetic.ts` (seeded illustrative
-values for 2010/2016/2022) so the UI still runs standalone — the top-bar badge flips
-between "Live · IBGE" and "Illustrative data" accordingly.
+values for 2010/2016/2022) so the UI still runs standalone; `BR_DATA.source` records
+whether `"live"` or `"synthetic"` is active (no UI badge).
 
 **Coverage is partial by design.** The IBGE worker feeds Demographics + Economic Profile
 today; the other six modes are **greyed out** (`isModeAvailable` in `viz/modes.ts`) until
@@ -71,4 +71,9 @@ non-synthetic reference data: `states-meta.ts` (names/capitals/codes/areas) + th
 - Add every new user-facing string to **both** `en` and `pt-BR` in `i18n/strings.ts`.
 - The mode/scale/palette system in `viz/modes.ts` is the one place choropleth logic
   lives — sequential, diverging (with a meaningful midpoint), and categorical scales.
+- **Metric override:** clicking an indicator row in the detail panel recolors the whole map
+  by that metric. `App` holds `metricProp`; when set it derives an "effective mode"
+  (sequential scale on that prop) passed to the map/legend/tooltip/overview. Clicking the
+  active row toggles back to the mode default; switching modes clears it. Rows for indicators
+  with no data are non-clickable.
 - User prefs (lang, mode, year, tweaks) persist to `localStorage` under `bv.*`.

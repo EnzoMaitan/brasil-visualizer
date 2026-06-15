@@ -95,7 +95,9 @@ export function BrazilMap({ records, scale, hovered, selected, onHover, onSelect
     suppressClick.current = false;
     movedRef.current = false;
     dragRef.current = { sx: e.clientX, sy: e.clientY, ox: viewRef.current.x, oy: viewRef.current.y };
-    try { svgRef.current!.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    // NB: do NOT capture the pointer here — capturing on press makes Chrome retarget the
+    // subsequent `click` to the <svg>, so a state's onClick never fires. We capture only
+    // once an actual drag starts (below), keeping plain clicks selectable.
   }
   function onPointerMove(e: React.PointerEvent) {
     if (onMove) onMove(e);
@@ -105,6 +107,8 @@ export function BrazilMap({ records, scale, hovered, selected, onHover, onSelect
     if (!movedRef.current && Math.abs(dx) + Math.abs(dy) > 4) {
       movedRef.current = true;
       setDragging(true);
+      // Capture now that we're panning, so the drag keeps tracking outside the svg.
+      try { svgRef.current!.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     }
     if (!movedRef.current) return;
     const sc = svgRef.current!.getScreenCTM()!.a || 1; // px per viewBox unit
@@ -176,8 +180,9 @@ export function BrazilMap({ records, scale, hovered, selected, onHover, onSelect
           {selected && selected !== hovered ? highlightPath(selected, "selected") : null}
           {hovered ? highlightPath(hovered, hovered === selected ? "selected" : "hover") : null}
         </g>
-        {/* labels — counter-positioned so they stay a constant screen size */}
-        <g className="map-labels">
+        {/* labels — counter-positioned so they stay a constant screen size.
+            pointer-events: none so a sigla never intercepts a click/hover on its state. */}
+        <g className="map-labels" style={{ pointerEvents: "none" }}>
           {codes.filter(showLabel).map((code) => {
             const [cx, cy] = GEO.paths[code].centroid;
             const n = NUDGE[code] || [0, 0];

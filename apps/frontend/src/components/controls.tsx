@@ -124,22 +124,6 @@ export function LangToggle({ lang, onChange }: { lang: Lang; onChange: (l: Lang)
   );
 }
 
-// ---- Data badge ---------------------------------------------------------
-export function DataBadge() {
-  const { t } = useViz();
-  const [open, setOpen] = useState(false);
-  const live = BR_DATA.source === "live";
-  return (
-    <div className="databadge-wrap" onMouseLeave={() => setOpen(false)}>
-      <button className={"databadge" + (live ? " databadge--live" : "")}
-        onMouseEnter={() => setOpen(true)} onClick={() => setOpen((o) => !o)}>
-        <span className="databadge-dot"></span>{live ? t("ui.liveBadge") : t("ui.placeholderBadge")}
-      </button>
-      {open ? <div className="databadge-pop">{live ? t("ui.liveTip") : t("ui.placeholderTip")}</div> : null}
-    </div>
-  );
-}
-
 // ---- Settings / gear button: opens the Tweaks panel ----
 export function GearButton({ onClick }: { onClick: () => void }) {
   const { t } = useViz();

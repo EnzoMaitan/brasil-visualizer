@@ -88,23 +88,34 @@ export function Tooltip({ code, mode, scale, records }: { code: string; mode: Mo
 }
 
 // ---- Indicator row ------------------------------------------------------
-function IndicatorRow({ ind, rec, records }: { ind: Mode["indicators"][number]; rec: StateRecord; records: StateRecord[] }) {
+function IndicatorRow({ ind, rec, records, onMetric, active }: {
+  ind: Mode["indicators"][number]; rec: StateRecord; records: StateRecord[];
+  onMetric?: (prop: string) => void; active?: boolean;
+}) {
   const { t, locale } = useViz();
   const raw = rec[ind.prop];
   const has = typeof raw === "number" && Number.isFinite(raw);
   const s = statsOf(records, ind.prop);
+  const available = Number.isFinite(s.min); // at least one state has this indicator
+  const clickable = !!onMetric && available;
   const color = ind.dir === -1 ? "var(--neg)" : ind.dir === 1 ? "var(--pos)" : "var(--accent)";
-  return (
-    <div className="ind-row">
+  const cls = "ind-row" + (active ? " ind-row--active" : "") + (clickable ? " ind-row--clickable" : "");
+  const body = (
+    <>
       <span className="ind-label">{t("ind." + ind.key)}</span>
       <div className="ind-bar">{has ? <MiniRange value={raw} min={s.min} max={s.max} color={color} /> : null}</div>
       <span className={"ind-val" + (has ? "" : " ind-val--empty")}>{has ? fval(raw, ind.kind, locale) : "—"}</span>
-    </div>
+    </>
+  );
+  if (!clickable) return <div className={cls}>{body}</div>;
+  return (
+    <button type="button" className={cls} onClick={() => onMetric!(ind.prop)}
+      title={t("ui.showOnMap")} aria-pressed={active}>{body}</button>
   );
 }
 
 // ---- Sidebar detail -----------------------------------------------------
-export function Detail({ code, mode, scale, records, onClose }: { code: string; mode: Mode; scale: Scale; records: StateRecord[]; onClose: () => void }) {
+export function Detail({ code, mode, scale, records, onClose, onMetric }: { code: string; mode: Mode; scale: Scale; records: StateRecord[]; onClose: () => void; onMetric?: (prop: string) => void }) {
   const { t, locale } = useViz();
   const rec = records.find((r) => r.code === code);
   if (!rec) return null;
@@ -157,7 +168,8 @@ export function Detail({ code, mode, scale, records, onClose }: { code: string; 
         <span className="eyebrow">{mode.breakdown ? t("ui.thisState") : t("ui.breakdown")}</span>
         <div className="ind-list">
           {mode.indicators.map((ind) => (
-            <IndicatorRow key={ind.key} ind={ind} rec={rec} records={records} />
+            <IndicatorRow key={ind.key} ind={ind} rec={rec} records={records}
+              onMetric={onMetric} active={spec.prop === ind.prop} />
           ))}
         </div>
       </div>

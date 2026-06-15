@@ -184,7 +184,7 @@ brasil-visualizer/
 - **Current status:** the Phase-1 UI now **calls the live API** (`src/data/dataset.ts`
   discovers country/level/periods from `/countries`, fetches `/regions`, and adapts the
   nested-by-theme payload into the flat record the modes use). It falls back to bundled
-  synthetic data when the API is unreachable; the top-bar badge shows which is active.
+  synthetic data when the API is unreachable (`BR_DATA.source` records which is active).
   Demographics + Economic Profile render live IBGE data; the other modes are greyed until
   their workers land. Geometry stays bundled (real borders deferred, per above).
 
