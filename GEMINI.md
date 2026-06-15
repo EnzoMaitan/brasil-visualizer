@@ -83,7 +83,7 @@ Python Worker (Brazil) ─┐
                           ├─► RabbitMQ ──► NestJS ──► MongoDB (geometries + snapshots)
 (future) Worker (XX) ─────┘   country.{CODE}.geometry      │          + countries registry
                               country.{CODE}.region        ├──► Redis (read-through cache)
-                                                           └──► Vite + React + Leaflet.js
+                                                           └──► Vite + React + inline SVG
                                                                 map modes · two zoom levels
 ```
 
@@ -98,9 +98,9 @@ Python Worker (Brazil) ─┐
    messages upsert the `geometries` collection; indicator messages upsert a theme block
    into the matching `snapshots` document and refresh the `countries` registry. It
    invalidates/updates the **Redis** cache on write.
-3. **Frontend (Vite + React + Leaflet)** calls `/countries` on load, then fetches geometry
-   (cached hard) and the latest snapshot per level, joins them by `code`, and renders the
-   active **map mode** as a choropleth.
+3. **Frontend (Vite + React + inline SVG)** calls `/countries` on load, then fetches
+   geometry (cached hard) and the latest snapshot per level, joins them by `code`, projects
+   the GeoJSON with `d3-geo`, and renders the active **map mode** as an SVG choropleth.
 
 ---
 
@@ -109,7 +109,7 @@ Python Worker (Brazil) ─┐
 ```
 brasil-visualizer/
   apps/
-    frontend/                  # Vite + React + Leaflet   (planned)
+    frontend/                  # Vite + React + inline SVG   (planned)
       src/locales/{en,pt-BR}/translation.json
     backend/                   # NestJS                    (planned)
       src/i18n/{en,pt-BR}/messages.json
@@ -146,8 +146,10 @@ brasil-visualizer/
 | Tech | Role |
 |---|---|
 | Vite + React | App bundler and UI framework |
-| Leaflet.js | Interactive map — renders GeoJSON regions dynamically, drives map modes |
-| OpenStreetMap tiles | Free map background, no API key |
+| Inline SVG (no map library) | The map is an `<svg>` of `<path>` regions — drives map modes, hover, click |
+| d3-geo | Projects GeoJSON (lng/lat) into SVG path data (`geoMercator` + `geoPath`) |
+| d3-scale + d3-scale-chromatic | Choropleth color scales (sequential / diverging) + legend |
+| d3-zoom | Pan & zoom over the SVG via a `<g>` transform — no tile basemap |
 | react-i18next | PT-BR / EN language switching (extensible) |
 | axios + TanStack Query | Calls the NestJS API, caches client-side |
 
@@ -155,7 +157,9 @@ brasil-visualizer/
 - Never hardcode GeoJSON. Load it from `/countries/:code/geometries?level=…`.
 - Never hardcode indicator or map-mode names. Read them from `/countries/:code/themes`.
 - If an indicator/mode has no i18n key, fall back to the raw key name — never crash.
-- Do NOT use Google Maps. Leaflet + OSM is free, needs no key, and reads GeoJSON natively.
+- The map is **inline SVG only** — render regions as `<path>` elements projected with
+  `d3-geo`. No tile-based map library (Leaflet, Mapbox), no Google Maps, no external
+  basemap tiles, no API key. The choropleth polygons are the map; the background is plain.
 
 ### Backend
 | Tech | Role |
@@ -360,12 +364,25 @@ const { data: country }   = useQuery('/countries/BR');                       // 
 const { data: geometries } = useQuery('/countries/BR/geometries?level=UF');  // cached hard
 const { data: regions }    = useQuery('/countries/BR/regions?level=UF&period=latest');
 
-// Join geometry + indicators by `code`, color by the active map mode.
-L.geoJSON(geometries, {
-  style: (f) => colorScale(regions[f.properties.code], activeMode),
-  onEachFeature: (f, layer) =>
-    layer.on({ mouseover: showTooltip, mouseout: reset, click: openSidebar }),
-}).addTo(map);
+// Project once (fit the GeoJSON to the viewport), then render each region as an SVG
+// <path>, joined to its indicators by `code` and colored by the active map mode.
+const projection = geoMercator().fitSize([width, height], geometries);
+const path = geoPath(projection);
+
+<svg viewBox={`0 0 ${width} ${height}`}>
+  <g>{/* d3-zoom transform target */}
+    {geometries.features.map((f) => (
+      <path
+        key={f.properties.code}
+        d={path(f)}
+        fill={colorScale(regions[f.properties.code], activeMode)}
+        onMouseOver={showTooltip}
+        onMouseOut={reset}
+        onClick={openSidebar}
+      />
+    ))}
+  </g>
+</svg>
 ```
 
 **Map-mode UX** (full spec: design reference §5–§7):
@@ -526,7 +543,8 @@ GET /malhas/estados/{UF}?resolucao=5&formato=application/vnd.geo+json
 - Add political-party, electoral, or ideological data — permanently out of scope.
 - Overwrite a whole snapshot document — upsert one theme block at a time.
 - Duplicate polygons per period — geometry lives in its own collection.
-- Reintroduce Google Maps — Leaflet + OSM only.
+- Pull in a tile-based map library (Leaflet, Mapbox) or Google Maps — the map is inline
+  SVG choropleth only, with no external basemap tiles.
 - Add cloud infra, auth providers, or deployment config unless explicitly asked.
 
 ---

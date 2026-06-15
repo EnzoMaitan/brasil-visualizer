@@ -29,6 +29,15 @@ recolors every state (and later every municipality) around a single question:
 The map supports two zoom levels. The schema, API, and worker are all designed around
 the concept of `level` as a first-class field from day one.
 
+### Rendering (settled)
+
+The map is **inline SVG** — no tile-based map library and no basemap. The frontend fetches
+the IBGE GeoJSON, projects it once with `d3-geo` (`geoMercator().fitSize(...)` + `geoPath`)
+into SVG `<path>` data, and renders one `<path>` per region inside a single `<svg>`. The
+choropleth fill comes from `d3-scale` / `d3-scale-chromatic`; hover and click are plain SVG
+event handlers; pan/zoom is a `d3-zoom` transform on a wrapping `<g>`. There are no map
+tiles, no external map provider, and no API key.
+
 ### Level definitions
 
 | Level | Label | IBGE Code | GeoJSON Endpoint | Scope |
@@ -39,9 +48,10 @@ the concept of `level` as a first-class field from day one.
 ### Zoom interaction
 
 1. **Default view:** All 27 UFs rendered. Active map mode colors the states.
-2. **User clicks a state:** Map zooms into that state. Municipality polygons load from
-   a second GeoJSON call. Municipality-level indicators replace state-level data in the
-   sidebar. Map modes unavailable at N6 are greyed out.
+2. **User clicks a state:** The SVG zooms into that state (re-fit the projection to the
+   state's bounds, or animate a `d3-zoom` transform). Municipality polygons load from a
+   second GeoJSON call and replace the UF `<path>` set. Municipality-level indicators
+   replace state-level data in the sidebar. Map modes unavailable at N6 are greyed out.
 3. **User clicks background or "back" button:** Returns to full UF view.
 
 ### NestJS API endpoints (two levels, same schema)

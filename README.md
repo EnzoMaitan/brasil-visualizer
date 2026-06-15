@@ -64,7 +64,7 @@ Python Worker (Brazil) ─┐
 (future) Worker (XX) ─────┘                                      snapshots ──┼─► Redis cache
                                                                  countries   │
                                                                              └─► Vite + React
-                                                                                 + Leaflet.js
+                                                                                 + inline SVG
 ```
 
 1. **Workers (Python + pandas)** fetch, clean, and analyze data, compute derived metrics,
@@ -73,8 +73,9 @@ Python Worker (Brazil) ─┐
 2. **Backend (NestJS)** consumes everything via one wildcard subscription, upserts into
    MongoDB (one theme block at a time), keeps a country registry current, and caches reads
    in Redis.
-3. **Frontend (React + Leaflet)** discovers available levels/themes/indicators from the API
-   at runtime, joins geometry with indicator data, and renders the active map mode.
+3. **Frontend (React + inline SVG)** discovers available levels/themes/indicators from the
+   API at runtime, joins geometry with indicator data, projects the GeoJSON with `d3-geo`,
+   and renders the active map mode as an SVG choropleth.
 
 **Why it's built this way (the portfolio angle):** polyglot services, async messaging,
 a plugin architecture (a new country = a new worker, nothing else), time-series-ready
@@ -87,13 +88,14 @@ containerization.
 
 | Layer | Tech |
 |---|---|
-| **Frontend** | Vite · React · Leaflet.js · OpenStreetMap tiles · react-i18next · TanStack Query |
+| **Frontend** | Vite · React · inline SVG · d3-geo · d3-scale + d3-scale-chromatic · d3-zoom · react-i18next · TanStack Query |
 | **Backend** | NestJS · Mongoose · cache-manager + ioredis · RabbitMQ consumer · nestjs-i18n |
 | **Workers** | Python 3.12 · pandas · httpx/requests · pysus · geopandas (Phase 3) · pika |
 | **Data & infra** | MongoDB · Redis · RabbitMQ · Docker Compose |
 
-No paid APIs, no Google Maps, no cloud dependencies — everything runs locally and every
-data source is free (one source needs a free Gov.br token).
+No paid APIs, no map provider, no basemap tiles, no cloud dependencies — the map is plain
+inline SVG built from IBGE GeoJSON, and every data source is free (one source needs a free
+Gov.br token).
 
 ---
 
@@ -127,7 +129,7 @@ docker compose -f docker-compose.yml -f docker-compose.brazil.yml up --build
 ```
 brasil-visualizer/
   apps/
-    frontend/          Vite + React + Leaflet            (planned)
+    frontend/          Vite + React + inline SVG         (planned)
     backend/           NestJS API + queue consumer       (planned)
     workers/
       _template/       copy-me scaffold for a new source  ✓
@@ -199,4 +201,4 @@ build order.
 A personal portfolio project. Government data belongs to its respective Brazilian agencies
 (IBGE, Tesouro Nacional, DataSUS, ANEEL, CGU/Portal da Transparência) and is used under
 their open-data terms — attribution required per Brazilian open-data legislation
-(Decreto nº 8.777/2016). Map tiles © OpenStreetMap contributors.
+(Decreto nº 8.777/2016). Map boundaries are IBGE malhas GeoJSON, rendered as inline SVG.
