@@ -109,8 +109,13 @@ Python Worker (Brazil) ─┐
 ```
 brasil-visualizer/
   apps/
-    frontend/                  # Vite + React + inline SVG   (planned)
-      src/locales/{en,pt-BR}/translation.json
+    frontend/                  # Vite + React + TS + inline SVG   (done — Phase 1 UI)
+      CLAUDE.md · README.md    # per-app guide + run instructions
+      src/data/                # br-states.geo · states-meta · synthetic indicators · types
+      src/i18n/                # flat EN / PT-BR strings + makeT
+      src/viz/                 # modes (palettes/scales) · projection (GeoJSON→SVG)
+      src/components/          # BrazilMap · panels · controls · charts · tweaks
+      src/{context,App,main}   # VizContext · app root · entry
     backend/                   # NestJS                    (planned)
       src/i18n/{en,pt-BR}/messages.json
     workers/
@@ -136,7 +141,10 @@ brasil-visualizer/
 ```
 
 > Status tags reflect the current base. The foundation (worker SDK, contracts, core
-> compose, docs) exists; the three services (brazil worker, backend, frontend) do not yet.
+> compose, docs) **and the frontend (Phase 1 UI)** exist; the brazil worker and the NestJS
+> backend do not yet. The frontend currently renders clearly-labeled **synthetic** indicator
+> data over **real** IBGE geometry — its data layer (`apps/frontend/src/data/`) is isolated
+> so the live `/countries` API swaps in unchanged when the backend lands.
 
 ---
 
@@ -145,21 +153,31 @@ brasil-visualizer/
 ### Frontend
 | Tech | Role |
 |---|---|
-| Vite + React | App bundler and UI framework |
-| Inline SVG (no map library) | The map is an `<svg>` of `<path>` regions — drives map modes, hover, click |
-| d3-geo | Projects GeoJSON (lng/lat) into SVG path data (`geoMercator` + `geoPath`) |
-| d3-scale + d3-scale-chromatic | Choropleth color scales (sequential / diverging) + legend |
-| d3-zoom | Pan & zoom over the SVG via a `<g>` transform — no tile basemap |
-| react-i18next | PT-BR / EN language switching (extensible) |
-| axios + TanStack Query | Calls the NestJS API, caches client-side |
+| Vite + React + TypeScript | App bundler, UI framework, and typing |
+| Inline SVG (no map library) | The map is an `<svg>` of `<path>` regions — drives map modes, hover, click, zoom/pan |
+| Custom equirectangular projection | `src/viz/projection.ts` fits IBGE GeoJSON to the viewport once at load (cos-lat aspect correction; no d3-geo dependency) |
+| Custom oklch color scales | `src/viz/modes.ts` — sequential / diverging / categorical ramps sampled in oklch, plus the legend |
+| Pointer-based zoom & pan | Wheel-to-cursor zoom + drag-pan over a `<g>` transform — hand-rolled, no d3-zoom |
+| Custom i18n (`makeT`) | Flat dot-keyed EN / PT-BR dict with EN→raw-key fallback (react-i18next is a later option) |
+| (planned) axios + TanStack Query | Will call the NestJS API once the backend lands; today the data is bundled synthetic |
+
+> The above is what the Phase-1 build actually uses. The d3 / TanStack libraries were the
+> original sketch; the implementation stayed dependency-light (custom projection, scales,
+> zoom) and runs on bundled synthetic data until the API exists. Swapping in d3 or TanStack
+> later is optional, not required.
 
 **Map rules:**
-- Never hardcode GeoJSON. Load it from `/countries/:code/geometries?level=…`.
-- Never hardcode indicator or map-mode names. Read them from `/countries/:code/themes`.
-- If an indicator/mode has no i18n key, fall back to the raw key name — never crash.
-- The map is **inline SVG only** — render regions as `<path>` elements projected with
-  `d3-geo`. No tile-based map library (Leaflet, Mapbox), no Google Maps, no external
+- The map is **inline SVG only** — regions are `<path>` elements projected from IBGE
+  GeoJSON. No tile-based map library (Leaflet, Mapbox), no Google Maps, no external
   basemap tiles, no API key. The choropleth polygons are the map; the background is plain.
+- If an indicator/mode has no i18n key, fall back to the raw key name — never crash.
+- **Target architecture (once the backend is built):** load GeoJSON from
+  `/countries/:code/geometries?level=…` and indicator/mode names from
+  `/countries/:code/themes` — never hardcode either.
+- **Current status:** the Phase-1 UI bundles real IBGE geometry and *synthetic* indicator
+  data (clearly badged "Illustrative data") instead of calling the API, which doesn't exist
+  yet. `src/data/` is the single swap point — replace the `BR_DATA` export with the live
+  `/countries` feed and the target rules above take effect with no other changes.
 
 ### Backend
 | Tech | Role |
@@ -359,31 +377,35 @@ region list. The frontend joins `/geometries` (cached hard) with `/regions` by `
 
 ## 10. Frontend — Dynamic Map & Map Modes
 
+**Implemented (Phase 1).** The GeoJSON is projected once at load into SVG path data
+(`src/viz/projection.ts`); `makeScale(mode, records, palette)` (`src/viz/modes.ts`) returns
+the choropleth color function for the active mode; `BrazilMap` renders each region as a
+`<path>`, joined to its indicators by `code`, inside a `<g>` whose transform drives the
+hand-rolled zoom/pan.
+
 ```tsx
-const { data: country }   = useQuery('/countries/BR');                       // levels, themes
-const { data: geometries } = useQuery('/countries/BR/geometries?level=UF');  // cached hard
-const { data: regions }    = useQuery('/countries/BR/regions?level=UF&period=latest');
+// records = BR_DATA.all(year)  ← synthetic today; the live /countries feed later.
+const mode  = MODE_BY_KEY[modeKey];
+const scale = makeScale(mode, records, tweaks.palette);   // seq / div / cat color fn
 
-// Project once (fit the GeoJSON to the viewport), then render each region as an SVG
-// <path>, joined to its indicators by `code` and colored by the active map mode.
-const projection = geoMercator().fitSize([width, height], geometries);
-const path = geoPath(projection);
-
-<svg viewBox={`0 0 ${width} ${height}`}>
-  <g>{/* d3-zoom transform target */}
-    {geometries.features.map((f) => (
+<svg viewBox={`0 0 ${W} ${H}`}>
+  <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
+    {Object.keys(BR_GEO.paths).map((code) => (
       <path
-        key={f.properties.code}
-        d={path(f)}
-        fill={colorScale(regions[f.properties.code], activeMode)}
-        onMouseOver={showTooltip}
-        onMouseOut={reset}
-        onClick={openSidebar}
+        key={code}
+        d={BR_GEO.paths[code].d}
+        fill={scale.colorOf(recByCode[code]) /* or var(--state-empty) */}
+        onMouseEnter={() => onHover(code)}
+        onClick={() => onSelect(code)}
       />
     ))}
   </g>
 </svg>
 ```
+
+> When the backend lands, the only change is the data source: feed `geometries` from
+> `/countries/:code/geometries` and `records` from `/countries/:code/regions` (e.g. via
+> TanStack Query) instead of the bundled modules. The map, modes, and UX stay as-is.
 
 **Map-mode UX** (full spec: design reference §5–§7):
 - A **mode switcher** (one active mode at a time) recolors the whole map per theme/metric.
@@ -406,7 +428,7 @@ Supported languages: **PT-BR (default/fallback)** and **EN**. Extensible to othe
 
 | Layer | Tool | Detected via |
 |---|---|---|
-| React | react-i18next | Browser language + manual toggle |
+| React | custom `makeT` (flat dict) | Browser language + manual toggle; react-i18next is a later option |
 | NestJS | nestjs-i18n | `Accept-Language` / `x-lang` header |
 | Python worker | env var dict | `WORKER_LANG` env var (logs only) |
 
@@ -432,8 +454,18 @@ docker compose -f docker-compose.yml -f docker-compose.brazil.yml up --build
 
 The core `docker-compose.yml` currently brings up the three infrastructure services with
 healthchecks; `backend` and `frontend` service blocks are present but commented until
-those apps are scaffolded. RabbitMQ mounts `infra/rabbitmq/rabbitmq.conf` so the default
-`guest` user works across the Compose network.
+those apps are wired into Compose. RabbitMQ mounts `infra/rabbitmq/rabbitmq.conf` so the
+default `guest` user works across the Compose network.
+
+The **frontend already runs standalone** today — it has no backend dependency (synthetic
+data is bundled):
+
+```bash
+cd apps/frontend && npm install && npm run dev   # → http://localhost:5173
+```
+
+Uncommenting its Compose service is a later step (it serves fine outside Compose since it
+needs none of mongo/redis/rabbitmq yet).
 
 Local ports:
 | Service | Port |
@@ -574,11 +606,17 @@ enabled at the current zoom — never hardcoded.
 - **Phase 1 — UF level, all 4 themes.** The portfolio deliverable. Highest-impact,
   most-available indicators: population, literacy, average income, GDP by sector, hospital
   beds, energy mix, infant mortality. Map-mode switching + sidebar working end to end.
+  → **Frontend UI is built** (`apps/frontend`): all 8 modes, hover tooltip, click→detail
+  sidebar with mini-charts, state search, year slider, EN⇄PT-BR, free zoom/pan, and a
+  Tweaks panel — running on synthetic data. **Remaining for Phase 1:** the brazil worker
+  and NestJS backend, then point the frontend's `src/data/` layer at the live API.
 - **Phase 2 — Municipality (N6) level** for Demographics, Wealth, Public Services. Same
   schema and zoom interaction; mainly a second scraping pass and the children endpoint.
 - **Phase 3 — Municipality Infrastructure (ANEEL).** GeoPandas spatial join of plant
   coordinates against IBGE municipality polygons — the most technically interesting piece.
 
-Build order for the base: **Brazil worker (Phase 1 `fetch()`) → backend consumer + API →
-frontend map.** Throttling and retry must be built into the worker from the start, not
-bolted on — a full N6 pass touches ~5,570 municipalities.
+Build order for the base: the **frontend map is already built** against bundled synthetic
+data (so the UX is proven independently). Remaining order: **Brazil worker (Phase 1
+`fetch()`) → backend consumer + API → repoint the frontend's `src/data/` at the live
+feed.** Throttling and retry must be built into the worker from the start, not bolted on —
+a full N6 pass touches ~5,570 municipalities.
