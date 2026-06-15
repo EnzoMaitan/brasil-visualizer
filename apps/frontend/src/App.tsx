@@ -4,8 +4,8 @@ import { VizContext } from "./context/VizContext";
 import type { VizContextValue } from "./context/VizContext";
 import { makeT } from "./i18n";
 import type { Lang } from "./data/types";
-import { BR_DATA } from "./data/synthetic";
-import { MODE_BY_KEY, makeScale, PALETTES, paletteKeys } from "./viz/modes";
+import { BR_DATA, loadData } from "./data/dataset";
+import { MODE_BY_KEY, makeScale, availableModeKeys, PALETTES, paletteKeys } from "./viz/modes";
 import { BrazilMap } from "./components/BrazilMap";
 import { Legend, Tooltip, Detail, Overview } from "./components/panels";
 import { ModeSwitcher, Search, YearSlider, LangToggle, DataBadge, GearButton, Brand } from "./components/controls";
@@ -46,15 +46,37 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [tw, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [ready, setReady] = useState(false);
   const tipRef = useRef<HTMLDivElement | null>(null);
+
+  // Load the live dataset once (falls back to synthetic if the API is down).
+  useEffect(() => {
+    loadData().then(() => {
+      setYear((y) => (BR_DATA.years.includes(y) ? y : BR_DATA.years[BR_DATA.years.length - 1] ?? y));
+      setReady(true);
+    });
+  }, []);
 
   useEffect(() => ls.set("bv.lang", lang), [lang]);
   useEffect(() => ls.set("bv.mode", modeKey), [modeKey]);
   useEffect(() => ls.set("bv.year", year), [year]);
 
   const t = useMemo(() => makeT(lang), [lang]);
-  const mode = MODE_BY_KEY[modeKey];
-  const records = useMemo(() => BR_DATA.all(year), [year]);
+  const records = useMemo(() => (ready ? BR_DATA.all(year) : []), [year, ready]);
+  const available = useMemo(() => availableModeKeys(records), [records]);
+
+  // Keep the active mode on one that actually has data (others are greyed out).
+  const modeKeyEff =
+    ready && available.size && !available.has(modeKey)
+      ? available.has("demographics")
+        ? "demographics"
+        : ([...available][0] as string)
+      : modeKey;
+  useEffect(() => {
+    if (ready && modeKeyEff !== modeKey) setModeKey(modeKeyEff);
+  }, [ready, modeKeyEff, modeKey]);
+
+  const mode = MODE_BY_KEY[modeKeyEff] ?? MODE_BY_KEY.demographics;
   const scale = useMemo(() => makeScale(mode, records, tw.palette), [mode, records, tw.palette]);
 
   const ctx = useMemo<VizContextValue>(() => ({ t, locale: lang, lang, tweaks: tw }), [t, lang, tw]);
@@ -68,6 +90,17 @@ export default function App() {
     if (y + h > window.innerHeight) y = e.clientY - h - pad;
     el.style.left = x + "px";
     el.style.top = y + "px";
+  }
+
+  if (!ready) {
+    return (
+      <div className={"app app--loading" + (tw.dark ? " dark" : "")}>
+        <div className="loading">
+          <div className="loading-spinner" />
+          <span>{t("ui.loading")}</span>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -88,7 +121,7 @@ export default function App() {
 
         <main className="layout">
           <aside className="rail rail-left">
-            <ModeSwitcher active={modeKey} onChange={(k) => setModeKey(k)} paletteKey={tw.palette} />
+            <ModeSwitcher active={modeKeyEff} onChange={(k) => setModeKey(k)} paletteKey={tw.palette} available={available} />
           </aside>
 
           <section className="map-area">

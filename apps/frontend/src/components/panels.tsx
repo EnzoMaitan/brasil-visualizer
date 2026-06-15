@@ -3,7 +3,7 @@ import { useViz, statsOf, rankOf } from "../context/VizContext";
 import { fmt } from "../viz/modes";
 import type { FmtKind, Mode, Scale } from "../viz/modes";
 import { BR_STATES_META } from "../data/states-meta";
-import { BR_DATA } from "../data/synthetic";
+import { BR_DATA } from "../data/dataset";
 import type { Lang, StateRecord } from "../data/types";
 import { RankBar, MiniRange, StackedBar, Sparkline } from "./charts";
 
@@ -90,13 +90,15 @@ export function Tooltip({ code, mode, scale, records }: { code: string; mode: Mo
 // ---- Indicator row ------------------------------------------------------
 function IndicatorRow({ ind, rec, records }: { ind: Mode["indicators"][number]; rec: StateRecord; records: StateRecord[] }) {
   const { t, locale } = useViz();
+  const raw = rec[ind.prop];
+  const has = typeof raw === "number" && Number.isFinite(raw);
   const s = statsOf(records, ind.prop);
   const color = ind.dir === -1 ? "var(--neg)" : ind.dir === 1 ? "var(--pos)" : "var(--accent)";
   return (
     <div className="ind-row">
       <span className="ind-label">{t("ind." + ind.key)}</span>
-      <div className="ind-bar"><MiniRange value={rec[ind.prop] as number} min={s.min} max={s.max} color={color} /></div>
-      <span className="ind-val">{fval(rec[ind.prop] as number, ind.kind, locale)}</span>
+      <div className="ind-bar">{has ? <MiniRange value={raw} min={s.min} max={s.max} color={color} /> : null}</div>
+      <span className={"ind-val" + (has ? "" : " ind-val--empty")}>{has ? fval(raw, ind.kind, locale) : "—"}</span>
     </div>
   );
 }

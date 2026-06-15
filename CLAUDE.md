@@ -181,10 +181,12 @@ brasil-visualizer/
   **empty `FeatureCollection`**. The map's geographic rendering (a non-real placeholder, TBD)
   will be decided when the frontend is wired to the live API; the inline-SVG / no-tile rules
   above still hold whenever real geometry is reintroduced.
-- **Current status:** the Phase-1 UI bundles real IBGE geometry and *synthetic* indicator
-  data (clearly badged "Illustrative data") instead of calling the API. `src/data/` is the
-  single swap point — replace the `BR_DATA` export with the live `/countries` feed; per the
-  geometry decision above, the live feed carries indicators (not borders) for now.
+- **Current status:** the Phase-1 UI now **calls the live API** (`src/data/dataset.ts`
+  discovers country/level/periods from `/countries`, fetches `/regions`, and adapts the
+  nested-by-theme payload into the flat record the modes use). It falls back to bundled
+  synthetic data when the API is unreachable; the top-bar badge shows which is active.
+  Demographics + Economic Profile render live IBGE data; the other modes are greyed until
+  their workers land. Geometry stays bundled (real borders deferred, per above).
 
 ### Backend
 | Tech | Role |

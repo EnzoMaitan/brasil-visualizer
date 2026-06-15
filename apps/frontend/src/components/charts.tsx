@@ -75,8 +75,10 @@ export function Sparkline({
   const W = 240, H = 64, pad = 10;
   const min = Math.min(...values), max = Math.max(...values);
   const span = max - min || 1;
+  // A single period (the live feed has one year today) → center the lone point.
+  const denom = values.length > 1 ? values.length - 1 : 1;
   const pts = values.map((v, i) => {
-    const x = pad + (i / (values.length - 1)) * (W - 2 * pad);
+    const x = values.length > 1 ? pad + (i / denom) * (W - 2 * pad) : W / 2;
     const y = pad + (1 - (v - min) / span) * (H - 2 * pad);
     return [x, y] as [number, number];
   });

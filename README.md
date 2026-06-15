@@ -135,7 +135,7 @@ docker compose -f docker-compose.yml -f docker-compose.brazil.yml up --build
 ```
 brasil-visualizer/
   apps/
-    frontend/          Vite + React + TS + inline SVG     ✓ (Phase 1 UI, synthetic data)
+    frontend/          Vite + React + TS + inline SVG     ✓ (Phase 1 UI; live API + synthetic fallback)
     backend/           NestJS read API over MongoDB      ◑ read API done; queue consumer + Redis planned
     workers/
       _template/       copy-me scaffold for a new source  ✓

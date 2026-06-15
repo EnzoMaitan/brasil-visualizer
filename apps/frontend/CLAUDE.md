@@ -31,15 +31,27 @@ offline and gives crisp, highlightable, freely-zoomable state borders — the Vi
 EU-style border highlighting the brief asked for. Geometry is real IBGE data; only the
 indicator values are synthetic (see below).
 
-## Data is synthetic placeholder — swap point is isolated
+## Data — live API, with synthetic fallback
 
-`src/data/synthetic.ts` generates seeded, region-biased illustrative values for all
-27 states across 2010/2016/2022. **No real API is wired up** — the "Illustrative data"
-badge in the top bar says so. When the NestJS `/countries` pipeline lands, replace the
-`BR_DATA` export in that one module with a live feed; everything else stays as-is.
+`src/data/dataset.ts` is the data layer and **the one swap point**. On load it calls the
+NestJS API (`VITE_API_URL`, default `http://localhost:3000`), discovers the country/level/
+periods from `/countries`, fetches `/countries/:code/regions`, and **adapts the API's
+nested-by-theme shape into the flat `StateRecord`** the modes consume (renaming
+`pib_per_capita`→`gdp_per_capita`, `gdp_share_*`→`sector_*`, converting GDP to millions,
+deriving `dominant_sector`). `BR_DATA.source` is `"live"` or `"synthetic"`.
 
-Real, non-synthetic data: `src/data/states-meta.ts` (names, capitals, IBGE codes,
-areas) and `src/data/br-states.geo.ts` (IBGE borders).
+If the API is unreachable it falls back to `src/data/synthetic.ts` (seeded illustrative
+values for 2010/2016/2022) so the UI still runs standalone — the top-bar badge flips
+between "Live · IBGE" and "Illustrative data" accordingly.
+
+**Coverage is partial by design.** The IBGE worker feeds Demographics + Economic Profile
+today; the other six modes are **greyed out** (`isModeAvailable` in `viz/modes.ts`) until
+their source workers (SICONFI/DataSUS/ANEEL/Transparência) land. Missing indicator rows
+render "—".
+
+**Geometry stays bundled.** Real borders are deferred (root §10 geometry decision), so the
+API serves no geometry; the map keeps rendering `src/data/br-states.geo.ts`. Real,
+non-synthetic reference data: `states-meta.ts` (names/capitals/codes/areas) + the geometry.
 
 ## Layout of `src/`
 

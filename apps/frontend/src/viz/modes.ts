@@ -206,6 +206,21 @@ export const MODE_BY_KEY: Record<string, Mode> = Object.fromEntries(MODES.map((m
 export const THEME_ORDER = ["demographics", "wealth", "infrastructure", "public_services"];
 export const paletteKeys = Object.keys(PALETTES);
 
+// A mode is available when its choropleth variable has data in the current record set —
+// categorical modes need a string at `prop`, others need a finite number. Lets the UI grey
+// out modes whose source worker hasn't landed yet, instead of rendering an empty map.
+export function isModeAvailable(mode: Mode, records: StateRecord[]): boolean {
+  const prop = mode.prop!;
+  return records.some((r) => {
+    const v = r[prop];
+    return mode.scale === "cat" ? typeof v === "string" : typeof v === "number" && Number.isFinite(v);
+  });
+}
+
+export function availableModeKeys(records: StateRecord[]): Set<string> {
+  return new Set(MODES.filter((m) => isModeAvailable(m, records)).map((m) => m.key));
+}
+
 export interface Scale {
   kind: ScaleKind;
   colorOf: (d: StateRecord) => string;

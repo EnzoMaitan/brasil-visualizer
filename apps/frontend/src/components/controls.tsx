@@ -4,7 +4,7 @@ import { useViz } from "../context/VizContext";
 import { PALETTES, MODES, THEME_ORDER, sampleRamp } from "../viz/modes";
 import type { Mode } from "../viz/modes";
 import { BR_STATES_META } from "../data/states-meta";
-import { BR_DATA } from "../data/synthetic";
+import { BR_DATA } from "../data/dataset";
 import type { Lang } from "../data/types";
 
 const META = BR_STATES_META;
@@ -26,27 +26,35 @@ function ModeChip({ mode, paletteKey }: { mode: Mode; paletteKey: string }) {
   return <span className="mode-chip" style={{ background: `linear-gradient(90deg, ${stops.join(",")})` }}></span>;
 }
 
-export function ModeSwitcher({ active, onChange, paletteKey }: { active: string; onChange: (k: string) => void; paletteKey: string }) {
+export function ModeSwitcher({ active, onChange, paletteKey, available }: {
+  active: string; onChange: (k: string) => void; paletteKey: string; available?: Set<string>;
+}) {
   const { t } = useViz();
   const byTheme: Record<string, Mode[]> = {};
   MODES.forEach((m) => { (byTheme[m.theme] = byTheme[m.theme] || []).push(m); });
+  const isEnabled = (key: string) => !available || available.has(key);
   return (
     <nav className="modes">
       <div className="modes-title eyebrow">{t("ui.modes")}</div>
       {THEME_ORDER.map((theme) => (
         <div key={theme} className="mode-group">
           <div className="mode-group-label">{t("theme." + theme)}</div>
-          {(byTheme[theme] || []).map((m) => (
-            <button key={m.key}
-              className={"mode-btn" + (m.key === active ? " mode-btn--active" : "")}
-              onClick={() => onChange(m.key)}>
-              <ModeChip mode={m} paletteKey={paletteKey} />
-              <span className="mode-btn-text">
-                <span className="mode-btn-name">{t("mode." + m.key + ".name")}</span>
-                <span className="mode-btn-desc">{t("mode." + m.key + ".desc")}</span>
-              </span>
-            </button>
-          ))}
+          {(byTheme[theme] || []).map((m) => {
+            const enabled = isEnabled(m.key);
+            return (
+              <button key={m.key}
+                className={"mode-btn" + (m.key === active ? " mode-btn--active" : "") + (enabled ? "" : " mode-btn--disabled")}
+                onClick={() => enabled && onChange(m.key)}
+                disabled={!enabled}
+                title={enabled ? undefined : t("ui.noDataMode")}>
+                <ModeChip mode={m} paletteKey={paletteKey} />
+                <span className="mode-btn-text">
+                  <span className="mode-btn-name">{t("mode." + m.key + ".name")}</span>
+                  <span className="mode-btn-desc">{enabled ? t("mode." + m.key + ".desc") : t("ui.noDataMode")}</span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       ))}
     </nav>
@@ -120,12 +128,14 @@ export function LangToggle({ lang, onChange }: { lang: Lang; onChange: (l: Lang)
 export function DataBadge() {
   const { t } = useViz();
   const [open, setOpen] = useState(false);
+  const live = BR_DATA.source === "live";
   return (
     <div className="databadge-wrap" onMouseLeave={() => setOpen(false)}>
-      <button className="databadge" onMouseEnter={() => setOpen(true)} onClick={() => setOpen((o) => !o)}>
-        <span className="databadge-dot"></span>{t("ui.placeholderBadge")}
+      <button className={"databadge" + (live ? " databadge--live" : "")}
+        onMouseEnter={() => setOpen(true)} onClick={() => setOpen((o) => !o)}>
+        <span className="databadge-dot"></span>{live ? t("ui.liveBadge") : t("ui.placeholderBadge")}
       </button>
-      {open ? <div className="databadge-pop">{t("ui.placeholderTip")}</div> : null}
+      {open ? <div className="databadge-pop">{live ? t("ui.liveTip") : t("ui.placeholderTip")}</div> : null}
     </div>
   );
 }
