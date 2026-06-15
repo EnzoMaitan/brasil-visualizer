@@ -117,7 +117,7 @@ brasil-visualizer/
       src/viz/                 # modes (palettes/scales) · projection (GeoJSON→SVG)
       src/components/          # BrazilMap · panels · controls · charts · tweaks
       src/{context,App,main}   # VizContext · app root · entry
-    backend/                   # NestJS                    (planned)
+    backend/                   # NestJS read API over MongoDB (done — §9 endpoints; queue consumer + Redis planned)
       src/i18n/{en,pt-BR}/messages.json
     workers/
       GEMINI.md                # per-app worker guide
@@ -175,10 +175,16 @@ brasil-visualizer/
 - **Target architecture (once the backend is built):** load GeoJSON from
   `/countries/:code/geometries?level=…` and indicator/mode names from
   `/countries/:code/themes` — never hardcode either.
+- **Geometry decision (current):** real-life IBGE borders are **deferred** — we are not
+  using real geographic boundaries for the time being. The IBGE worker collects indicators
+  only, so the `geometries` collection is empty and `/countries/:code/geometries` returns an
+  **empty `FeatureCollection`**. The map's geographic rendering (a non-real placeholder, TBD)
+  will be decided when the frontend is wired to the live API; the inline-SVG / no-tile rules
+  above still hold whenever real geometry is reintroduced.
 - **Current status:** the Phase-1 UI bundles real IBGE geometry and *synthetic* indicator
-  data (clearly badged "Illustrative data") instead of calling the API, which doesn't exist
-  yet. `src/data/` is the single swap point — replace the `BR_DATA` export with the live
-  `/countries` feed and the target rules above take effect with no other changes.
+  data (clearly badged "Illustrative data") instead of calling the API. `src/data/` is the
+  single swap point — replace the `BR_DATA` export with the live `/countries` feed; per the
+  geometry decision above, the live feed carries indicators (not borders) for now.
 
 ### Backend
 | Tech | Role |

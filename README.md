@@ -136,7 +136,7 @@ docker compose -f docker-compose.yml -f docker-compose.brazil.yml up --build
 brasil-visualizer/
   apps/
     frontend/          Vite + React + TS + inline SVG     ✓ (Phase 1 UI, synthetic data)
-    backend/           NestJS API + queue consumer       (planned)
+    backend/           NestJS read API over MongoDB      ◑ read API done; queue consumer + Redis planned
     workers/
       _template/       copy-me scaffold for a new source  ✓
       brazil/          IBGE worker (demographics/wealth/   ◑ IBGE done (UF); SICONFI/
@@ -202,14 +202,18 @@ documentation, and the **Phase 1 frontend** — the full map UI (all 8 modes, ho
 click→detail sidebar with mini-charts, state search, year slider, EN⇄PT-BR, free zoom/pan,
 Tweaks panel), running on clearly-labeled **synthetic** data over real IBGE geometry.
 
-The **Brazil IBGE worker** is now implemented (`apps/workers/brazil`): it pulls live IBGE
-SIDRA data for demographics, wealth, and public services across all 27 UFs, computes the
-derived metrics in pandas, and emits a contract-valid snapshot
-(`python main.py snapshot` → `output/snapshot-BR-ibge.json`). Not yet built: the worker's
-remaining sources (SICONFI, DataSUS, ANEEL, Portal da Transparência), the municipality
-level, and the NestJS backend — once the backend lands, the frontend's isolated `src/data/`
-layer points at the live API. See the roadmap above and [CLAUDE.md](CLAUDE.md) for the
-build order.
+The **Brazil IBGE worker** is implemented (`apps/workers/brazil`): it pulls live IBGE SIDRA
+data for demographics, wealth, and public services across all 27 UFs, computes the derived
+metrics in pandas, emits a contract-valid snapshot, and loads it into MongoDB.
+
+The **NestJS backend** is implemented as a first iteration (`apps/backend`): a
+country-agnostic read API over the `geodata` MongoDB serving the worker's data
+(`/countries`, `/countries/:code/regions`, `/themes`, …), running in Docker alongside Mongo.
+Not yet built: the worker's remaining sources (SICONFI, DataSUS, ANEEL, Portal da
+Transparência) and the municipality level; the backend's RabbitMQ consumer and Redis cache
+(data is loaded via the worker's `seed_mongo.py` for now); and wiring the frontend's
+isolated `src/data/` layer to the live API. Real map geometry is **deferred** (see the
+geometry decision in the design reference). See the roadmap above and [CLAUDE.md](CLAUDE.md).
 
 ---
 

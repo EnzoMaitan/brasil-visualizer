@@ -44,6 +44,14 @@ key.
 > indicator data — real geometry, fabricated numbers — with the data layer isolated for a
 > later live-API swap. Bringing in d3 / a fetch layer remains an option, not a requirement.
 
+> **Geometry decision (current, 2026-06-15):** real-life IBGE borders are **deferred** — the
+> live pipeline does **not** use real geographic boundaries for now. The IBGE worker collects
+> indicators only; the backend `geometries` collection is empty and `/countries/:code/geometries`
+> returns an empty `FeatureCollection`. When the frontend is wired to the API it will render a
+> **non-geographic placeholder** (exact form TBD) instead of the bundled `br-states.geo.ts`
+> borders. The inline-SVG, no-tile, no-basemap rules above still apply if/when real geometry
+> returns. Indicator/registry endpoints are the live contract in the meantime.
+
 ### Level definitions
 
 | Level | Label | IBGE Code | GeoJSON Endpoint | Scope |
