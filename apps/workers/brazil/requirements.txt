@@ -7,6 +7,10 @@ httpx>=0.27
 # Data cleaning, aggregation, and derived-metric computation
 pandas>=2.2
 
+# MongoDB driver — used ONLY by seed_mongo.py (the dev/bootstrap loader, not the worker's
+# publish path). Remove once the NestJS backend owns MongoDB writes.
+pymongo>=4.6
+
 # NOTE: later Brazil sources add their own deps here as fetch() grows:
 #   pika      (RabbitMQ publish — already a worker-sdk dependency)
 #   pysus     (DataSUS)

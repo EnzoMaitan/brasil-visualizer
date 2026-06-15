@@ -1,0 +1,47 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Brazil overlay — extends the core stack (docker-compose.yml).
+#
+#   # Bring up Mongo and seed it with live IBGE data in one shot:
+#   docker compose -f docker-compose.yml -f docker-compose.brazil.yml up --build ibge-seeder
+#
+# `ibge-seeder` is a DEV/bootstrap one-shot loader: it fetches a fresh IBGE snapshot and
+# writes it into the `mongo` service (collections `snapshots` + `countries`). It is a
+# temporary stand-in for the NestJS backend, which will own MongoDB writes once it exists
+# (CLAUDE.md §6 — the worker itself only publishes to RabbitMQ, never writes to Mongo).
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # One-shot: fetch IBGE → load into MongoDB, then exit (restart: "no").
+  ibge-seeder:
+    build:
+      context: .
+      dockerfile: apps/workers/brazil/Dockerfile
+    command: ["python", "seed_mongo.py", "--fetch", "--drop"]
+    restart: "no"
+    environment:
+      MONGO_URL: mongodb://mongo:27017/geodata
+      WORKER_LANG: pt-BR
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - geodata
+
+  # Long-running: publish IBGE messages to RabbitMQ (the production path). Useful once the
+  # NestJS consumer exists; with no consumer yet, the messages have nowhere to land.
+  ibge-worker:
+    build:
+      context: .
+      dockerfile: apps/workers/brazil/Dockerfile
+    command: ["python", "main.py", "publish"]
+    restart: "no"
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      WORKER_LANG: pt-BR
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - geodata
+    profiles:
+      - publish   # opt-in: `--profile publish`, so the default `up` only runs the seeder

@@ -25,6 +25,9 @@ or the frontend (root CLAUDE.md §2).
 - `ibge/pipeline.py` — fetches the queries, computes derived metrics in **pandas**, and
   emits `RegionData`. Derived metrics are pre-computed here and published as-is.
 - `snapshot.py` / `main.py` — serialize to the JSON artifact / CLI (`snapshot` | `publish`).
+- `seed_mongo.py` — **dev/bootstrap only**: loads the snapshot into the local `mongo`
+  container (`snapshots` + `countries`, §7 schema). It is *not* part of the worker: the
+  worker never writes to MongoDB — the NestJS backend will. Keep Mongo logic out of `fetch()`.
 
 ## Conventions specific to this worker
 

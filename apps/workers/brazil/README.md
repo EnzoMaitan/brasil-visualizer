@@ -59,12 +59,39 @@ The snapshot artifact (`output/snapshot-BR-ibge.json`) mirrors the backend's Mon
 `countries` registry + `snapshots` collection, so it doubles as a fixture for backend
 development before the worker is plugged into the live queue.
 
+## Load into MongoDB (dev/bootstrap)
+
+`seed_mongo.py` loads the snapshot into a local MongoDB — the `mongo` service in the repo's
+[`docker-compose.yml`](../../../docker-compose.yml) (db `geodata`, port 27017). It writes the
+`snapshots` and `countries` collections per root CLAUDE.md §7, upserting one theme block at a
+time and creating the documented indexes.
+
+> **This is a temporary stand-in for the NestJS backend**, which will own MongoDB writes once
+> it exists. The worker itself never writes to Mongo — it only publishes to RabbitMQ
+> (`python main.py publish`). See CLAUDE.md §6.
+
+```bash
+# A) One shot via Docker Compose — starts Mongo + fetches IBGE + loads it, then exits:
+docker compose -f docker-compose.yml -f docker-compose.brazil.yml up --build ibge-seeder
+
+# B) Or run Mongo in Docker and load from the host:
+docker compose up -d mongo                       # from the repo root
+python seed_mongo.py                             # loads ./output/snapshot-BR-ibge.json
+python seed_mongo.py --fetch --drop              # re-fetch from IBGE, replace existing
+MONGO_URL=mongodb://localhost:27017/geodata python seed_mongo.py   # custom URL
+
+# Inspect what landed:
+docker compose exec mongo mongosh geodata --quiet --eval \
+  'db.snapshots.countDocuments(); db.snapshots.findOne({code:"35"}).indicators.demographics'
+```
+
 ## Layout
 
 ```
 brazil/
   main.py        # CLI: `snapshot` (default) | `publish`; defines BrazilWorker.fetch()
   snapshot.py    # serialize List[RegionData] → registry + snapshots JSON
+  seed_mongo.py  # dev loader: snapshot → MongoDB (snapshots + countries collections)
   ibge/
     reference.py # 27 UFs + verified SIDRA table/variable/classification catalogue
     client.py    # retrying SIDRA HTTP client (metadata cache, Total-category resolution)
