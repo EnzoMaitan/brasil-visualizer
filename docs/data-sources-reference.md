@@ -29,8 +29,9 @@ Each section covers base URLs, endpoints, authentication, parameters, available 
 # UF / N3 — all 27 state polygons
 GET /malhas/paises/BR?resolucao=UF&formato=application/vnd.geo+json
 ```
-Returns all 27 UF polygons as GeoJSON. Stored as-is and, on the frontend, projected with
-`d3-geo` (`geoPath`) into SVG `<path>` data. This is the **default (UF) zoom level**.
+Returns all 27 UF polygons as GeoJSON. Stored as-is and, on the frontend, projected into
+SVG `<path>` data by a small custom equirectangular projection (`src/viz/projection.ts`;
+no d3-geo). This is the **default (UF) zoom level**.
 
 ```
 # Municipio / N6 — all municipality polygons within one state
@@ -137,8 +138,9 @@ curl "https://servicodados.ibge.gov.br/api/v3/agregados/5938/metadados"
 
 ### Integration Notes
 - No API key, no rate limit documented — treat respectfully.
-- GeoJSON from `/malhas` is stored in MongoDB as-is; the frontend projects it with `d3-geo`
-  into SVG `<path>` data (no map library, no basemap tiles).
+- GeoJSON from `/malhas` is stored in MongoDB as-is; the frontend projects it with a small
+  custom equirectangular projection into SVG `<path>` data (no d3-geo, no map library, no
+  basemap tiles).
 - Store IBGE data in PT-BR field names; translate only UI labels on the frontend.
 - The Python worker should verify table IDs via `/metadados` before publishing to RabbitMQ.
 

@@ -31,12 +31,18 @@ the concept of `level` as a first-class field from day one.
 
 ### Rendering (settled)
 
-The map is **inline SVG** — no tile-based map library and no basemap. The frontend fetches
-the IBGE GeoJSON, projects it once with `d3-geo` (`geoMercator().fitSize(...)` + `geoPath`)
-into SVG `<path>` data, and renders one `<path>` per region inside a single `<svg>`. The
-choropleth fill comes from `d3-scale` / `d3-scale-chromatic`; hover and click are plain SVG
-event handlers; pan/zoom is a `d3-zoom` transform on a wrapping `<g>`. There are no map
-tiles, no external map provider, and no API key.
+The map is **inline SVG** — no tile-based map library and no basemap. The frontend takes
+the IBGE GeoJSON, projects it once into SVG `<path>` data, and renders one `<path>` per
+region inside a single `<svg>`. Hover and click are plain SVG event handlers; pan/zoom is a
+transform on a wrapping `<g>`. There are no map tiles, no external map provider, and no API
+key.
+
+> **As implemented** (`apps/frontend`): the projection is a small hand-rolled
+> equirectangular transform with cos-latitude aspect correction (`src/viz/projection.ts`,
+> no d3-geo); choropleth fills are oklch ramps sampled in `src/viz/modes.ts` (no d3-scale);
+> pan/zoom is pointer-event-based (no d3-zoom). The Phase-1 UI runs on bundled **synthetic**
+> indicator data — real geometry, fabricated numbers — with the data layer isolated for a
+> later live-API swap. Bringing in d3 / a fetch layer remains an option, not a requirement.
 
 ### Level definitions
 
@@ -339,5 +345,6 @@ the backend to upsert individual theme blocks without rewriting the whole snapsh
   - Sequential (blue→red): for ranked indicators (income, capacity, population)
   - Diverging (red→white→green): for ratios where a midpoint matters (fiscal balance, growth rate)
 - **Legend:** Always visible bottom-left, updates with active mode.
-- **Language:** All mode labels and legends respect the react-i18next toggle (PT-BR / EN).
+- **Language:** All mode labels and legends respect the PT-BR / EN toggle (implemented with
+  a small custom `makeT` dictionary; react-i18next remains an option).
   Underlying data field names (IBGE names in PT-BR) are never exposed in the UI.

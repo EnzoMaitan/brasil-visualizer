@@ -73,9 +73,11 @@ Python Worker (Brazil) ─┐
 2. **Backend (NestJS)** consumes everything via one wildcard subscription, upserts into
    MongoDB (one theme block at a time), keeps a country registry current, and caches reads
    in Redis.
-3. **Frontend (React + inline SVG)** discovers available levels/themes/indicators from the
-   API at runtime, joins geometry with indicator data, projects the GeoJSON with `d3-geo`,
-   and renders the active map mode as an SVG choropleth.
+3. **Frontend (React + inline SVG)** joins geometry with indicator data by `code`, projects
+   the GeoJSON to SVG paths with a small custom equirectangular projection, and renders the
+   active map mode as an SVG choropleth. *(Built — Phase 1 UI; today it runs on bundled
+   synthetic data and will discover levels/themes/indicators from the API once the backend
+   exists.)*
 
 **Why it's built this way (the portfolio angle):** polyglot services, async messaging,
 a plugin architecture (a new country = a new worker, nothing else), time-series-ready
@@ -88,7 +90,7 @@ containerization.
 
 | Layer | Tech |
 |---|---|
-| **Frontend** | Vite · React · inline SVG · d3-geo · d3-scale + d3-scale-chromatic · d3-zoom · react-i18next · TanStack Query |
+| **Frontend** | Vite · React · TypeScript · inline SVG · custom equirectangular projection · custom oklch color scales · pointer-based zoom/pan · custom i18n *(d3 / TanStack Query optional later)* |
 | **Backend** | NestJS · Mongoose · cache-manager + ioredis · RabbitMQ consumer · nestjs-i18n |
 | **Workers** | Python 3.12 · pandas · httpx/requests · pysus · geopandas (Phase 3) · pika |
 | **Data & infra** | MongoDB · Redis · RabbitMQ · Docker Compose |
@@ -102,13 +104,16 @@ Gov.br token).
 ## Quick start
 
 ```bash
+# The map UI (runnable today — no backend needed, data is bundled synthetic)
+cd apps/frontend && npm install && npm run dev   # → http://localhost:5173
+
 # Core stack: MongoDB + Redis + RabbitMQ (runnable today)
 docker compose up --build
 ```
 
 | Service | URL / Port |
 |---|---|
-| Frontend | http://localhost:5173 *(once built)* |
+| Frontend | http://localhost:5173 *(runnable now — `npm run dev` in `apps/frontend`)* |
 | Backend API | http://localhost:3000 *(once built)* |
 | RabbitMQ management UI | http://localhost:15672 (guest / guest) |
 | MongoDB | `localhost:27017` |
@@ -129,7 +134,7 @@ docker compose -f docker-compose.yml -f docker-compose.brazil.yml up --build
 ```
 brasil-visualizer/
   apps/
-    frontend/          Vite + React + inline SVG         (planned)
+    frontend/          Vite + React + TS + inline SVG     ✓ (Phase 1 UI, synthetic data)
     backend/           NestJS API + queue consumer       (planned)
     workers/
       _template/       copy-me scaffold for a new source  ✓
@@ -158,6 +163,7 @@ This README is the front door. Deeper, topic-specific docs live in [`docs/`](doc
 | [docs/data-sources-reference.md](docs/data-sources-reference.md) | Every external API — endpoints, parameters, auth, and rate limits (IBGE, SICONFI, ANEEL, DataSUS, Portal da Transparência). |
 | [docs/agent-teams-reference.md](docs/agent-teams-reference.md) | How to run Claude Code agent teams against this repo. |
 | [apps/workers/CLAUDE.md](apps/workers/CLAUDE.md) | Worker-specific conventions and how to add a new country/source. |
+| [apps/frontend/CLAUDE.md](apps/frontend/CLAUDE.md) · [README](apps/frontend/README.md) | Frontend conventions, layout, the synthetic-data swap point, and how to run it. |
 
 ---
 
@@ -188,11 +194,14 @@ All free; all official Brazilian government open data.
 
 ## Project status
 
-🚧 **Foundation stage.** The base is in place — the Python worker SDK, the language-neutral
-message contracts, the core Docker Compose stack, and the full design/data-source
-documentation. Not yet built: the Brazil worker implementation, the NestJS backend, and
-the React frontend. See the roadmap above and [CLAUDE.md](CLAUDE.md) for the current
-build order.
+🚧 **Foundation + frontend.** In place: the Python worker SDK, the language-neutral message
+contracts, the core Docker Compose stack, the full design/data-source documentation, and
+the **Phase 1 frontend** — the full map UI (all 8 modes, hover tooltip, click→detail
+sidebar with mini-charts, state search, year slider, EN⇄PT-BR, free zoom/pan, Tweaks
+panel), running on clearly-labeled **synthetic** data over real IBGE geometry. Not yet
+built: the Brazil worker implementation and the NestJS backend — once those land, the
+frontend's isolated `src/data/` layer points at the live API. See the roadmap above and
+[CLAUDE.md](CLAUDE.md) for the build order.
 
 ---
 

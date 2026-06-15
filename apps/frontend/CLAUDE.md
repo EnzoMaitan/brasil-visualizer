@@ -20,14 +20,16 @@ npm run build      # tsc --noEmit + vite build
 npm run typecheck
 ```
 
-## Map rendering — deliberate deviation from the root doc
+## Map rendering — inline SVG, no map library
 
-The root CLAUDE.md §5 specs Leaflet + OSM tiles. **This app renders a custom SVG map
-instead** (`src/viz/projection.ts` projects real IBGE GeoJSON to SVG paths once at
-load). That was the design's explicit choice: it works fully offline, needs no tiles
-or API key, and gives crisp, highlightable, freely-zoomable state borders — exactly
-the Victoria 3 / EU-style border highlighting the brief asked for. Geometry is real
-IBGE data; only the indicator values are synthetic (see below).
+Per the root CLAUDE.md §5, the map is **inline SVG** — no tile-based map library, no
+basemap, no API key. `src/viz/projection.ts` projects real IBGE GeoJSON to SVG paths once
+at load using a small custom equirectangular projection (with cos-latitude aspect
+correction) rather than `d3-geo`; pan/zoom and choropleth scales are likewise hand-rolled
+(`src/viz/modes.ts`) to keep the dependency footprint minimal. The result works fully
+offline and gives crisp, highlightable, freely-zoomable state borders — the Victoria 3 /
+EU-style border highlighting the brief asked for. Geometry is real IBGE data; only the
+indicator values are synthetic (see below).
 
 ## Data is synthetic placeholder — swap point is isolated
 

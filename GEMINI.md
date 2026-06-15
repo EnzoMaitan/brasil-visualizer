@@ -100,7 +100,8 @@ Python Worker (Brazil) ─┐
    invalidates/updates the **Redis** cache on write.
 3. **Frontend (Vite + React + inline SVG)** calls `/countries` on load, then fetches
    geometry (cached hard) and the latest snapshot per level, joins them by `code`, projects
-   the GeoJSON with `d3-geo`, and renders the active **map mode** as an SVG choropleth.
+   the GeoJSON with a small custom projection, and renders the active **map mode** as an SVG
+   choropleth. *(Built; today it reads bundled synthetic data instead of the API — see §10.)*
 
 ---
 
@@ -110,7 +111,7 @@ Python Worker (Brazil) ─┐
 brasil-visualizer/
   apps/
     frontend/                  # Vite + React + TS + inline SVG   (done — Phase 1 UI)
-      CLAUDE.md · README.md    # per-app guide + run instructions
+      GEMINI.md · README.md    # per-app guide + run instructions
       src/data/                # br-states.geo · states-meta · synthetic indicators · types
       src/i18n/                # flat EN / PT-BR strings + makeT
       src/viz/                 # modes (palettes/scales) · projection (GeoJSON→SVG)
