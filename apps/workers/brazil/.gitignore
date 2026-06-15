@@ -1,0 +1,7 @@
+# Generated snapshot artifacts (re-create with `python main.py snapshot`)
+output/
+
+# Python
+__pycache__/
+*.pyc
+.venv/

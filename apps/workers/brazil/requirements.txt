@@ -1,0 +1,13 @@
+# worker-sdk is the internal base package (installed separately via the Dockerfile /
+# `pip install -e packages/worker-sdk` for local dev). Do not pin it here.
+
+# HTTP client for the IBGE SIDRA aggregates API
+httpx>=0.27
+
+# Data cleaning, aggregation, and derived-metric computation
+pandas>=2.2
+
+# NOTE: later Brazil sources add their own deps here as fetch() grows:
+#   pika      (RabbitMQ publish — already a worker-sdk dependency)
+#   pysus     (DataSUS)
+#   geopandas (Phase 3 ANEEL spatial join)

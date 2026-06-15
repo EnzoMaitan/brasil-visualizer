@@ -123,7 +123,7 @@ brasil-visualizer/
       GEMINI.md                # per-app worker guide
       _template/               # copy this to add a country/source   (done)
         main.py · requirements.txt · Dockerfile · README.md
-      brazil/                  # IBGE/SICONFI/DataSUS/ANEEL/Transparência   (planned)
+      brazil/                  # IBGE done (demographics/wealth/public_services, UF); SICONFI/DataSUS/ANEEL/Transparência planned
   packages/
     worker-sdk/                # Python base classes — imported by every worker (done)
       worker_sdk/{__init__,base_worker,models}.py
@@ -516,9 +516,9 @@ formulas live in [`docs/visualization-design-reference.md`](docs/visualization-d
 | Theme | Example indicator keys |
 |---|---|
 | `demographics` | `population`, `population_density`, `age_structure`, `urbanization_rate`, `literacy_rate`, `birth_rate`, `death_rate` |
-| `wealth` | `gdp_total`, `gdp_by_sector`, `household_income_avg`, `gini_coefficient`, `employment_by_sector`, `companies_by_sector`, `bolsa_familia_coverage`, `fiscal_autonomy_ratio`, `public_debt_per_capita` |
+| `wealth` | `gdp_total`, `gdp_by_sector`, `gdp_share_agriculture`, `gdp_share_industry`, `gdp_share_services`, `pib_per_capita`, `household_income_avg`, `gini_coefficient`, `employment_by_sector`, `companies_by_sector`, `bolsa_familia_coverage`, `fiscal_autonomy_ratio`, `public_debt_per_capita` |
 | `infrastructure` | `hospital_beds_per_100k`, `physicians_per_100k`, `energy_capacity_mw`, `energy_mix_hydro`, `energy_mix_solar`, `energy_mix_wind`, `energy_mix_thermal` |
-| `public_services` | `infant_mortality_rate`, `vaccination_coverage`, `social_program_beneficiaries`, `public_social_spending`, `federal_servants_density` |
+| `public_services` | `infant_mortality_rate`, `vaccination_coverage`, `social_program_beneficiaries`, `public_social_spending`, `federal_servants_density`, `water_supply_rate`, `sewage_adequate_rate`, `garbage_collection_rate` |
 
 **Derived metrics** (computed in the worker's pandas pipeline, published pre-computed —
 the backend never re-derives): `fiscal_autonomy_ratio` (own revenue ÷ total revenue),
@@ -609,15 +609,21 @@ enabled at the current zoom — never hardcoded.
   beds, energy mix, infant mortality. Map-mode switching + sidebar working end to end.
   → **Frontend UI is built** (`apps/frontend`): all 8 modes, hover tooltip, click→detail
   sidebar with mini-charts, state search, year slider, EN⇄PT-BR, free zoom/pan, and a
-  Tweaks panel — running on synthetic data. **Remaining for Phase 1:** the brazil worker
-  and NestJS backend, then point the frontend's `src/data/` layer at the live API.
+  Tweaks panel — running on synthetic data.
+  → **Brazil IBGE worker is built** (`apps/workers/brazil`): live IBGE SIDRA collection for
+  demographics, wealth, and public services across all 27 UFs, with derived metrics in
+  pandas and a contract-valid snapshot artifact (`python main.py snapshot`).
+  **Remaining for Phase 1:** the worker's other sources (SICONFI fiscal, DataSUS health,
+  ANEEL energy, Transparência social) and the NestJS backend, then point the frontend's
+  `src/data/` layer at the live API.
 - **Phase 2 — Municipality (N6) level** for Demographics, Wealth, Public Services. Same
   schema and zoom interaction; mainly a second scraping pass and the children endpoint.
 - **Phase 3 — Municipality Infrastructure (ANEEL).** GeoPandas spatial join of plant
   coordinates against IBGE municipality polygons — the most technically interesting piece.
 
 Build order for the base: the **frontend map is already built** against bundled synthetic
-data (so the UX is proven independently). Remaining order: **Brazil worker (Phase 1
-`fetch()`) → backend consumer + API → repoint the frontend's `src/data/` at the live
-feed.** Throttling and retry must be built into the worker from the start, not bolted on —
+data (so the UX is proven independently), and the **Brazil worker's IBGE `fetch()` is
+built** (the three IBGE themes at UF level). Remaining order: **add the worker's other
+sources → backend consumer + API → repoint the frontend's `src/data/` at the live feed.**
+Throttling and retry must be built into the worker from the start, not bolted on —
 a full N6 pass touches ~5,570 municipalities.

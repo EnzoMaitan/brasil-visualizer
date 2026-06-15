@@ -102,26 +102,33 @@ To get a specific state: `localidades=N3[35]` (SP = 35)
 
 ### Key SIDRA Tables for This Project
 
-| Indicator | Table | Variable |
-|-----------|-------|----------|
-| Total population (Census 2022) | 9514 | — |
-| Population by age/sex | 9906 | — |
-| Literacy rate | 9543 | — |
-| Urbanization rate | 1378 | — |
-| Average household income | 7435 | — |
-| Population density | 1301 | — |
-| Birth/death rates | 2612 | — |
-| GDP per state by sector (PIB) | 5938 | — |
-| Industrial production index | 3653 | — |
-| Agricultural production (PAM) | 1612 | — |
-| Livestock production (PPM) | 3939 | — |
-| Companies by sector (CEMPRE) | 6450 | — |
-| Employed workers per industry | 6461 | — |
-| Gini coefficient | 7435 | — |
-| HDI components | 9818 | — |
+This is a **candidate** list. The verified table + variable + classification IDs the Brazil
+worker actually uses live in `apps/workers/brazil/ibge/reference.py` (reconciled against live
+`/metadados` on 2026-06-15); the ✅ / notes column below reflects that verification.
+
+| Indicator | Table | Variable | Verified |
+|-----------|-------|----------|----------|
+| Total population (Census 2022) | 9514 | 93 | ✅ |
+| Population by age/sex | 9906 | — | candidate (not yet wired) |
+| Literacy rate | 9543 | 2513 | ✅ |
+| Urbanization rate | 9922 | 382 | ✅ (**1378 was 2010-only — use 9922, Censo 2022**) |
+| Average household income | — | — | ⚠️ **7435 is the Gini table, not income** — find a rendimento table |
+| Population density | 1301 (area, var 615) | — | ✅ derived: 9514 pop ÷ 1301 area |
+| Birth rate | 2612 | 218 | ✅ derived ÷ population (2612 is **live births only**, no deaths) |
+| GDP per state by sector (PIB) | 5938 | 37 / 498 / 513 / 517 / 6575 / 525 | ✅ |
+| Industrial production index | 3653 | — | candidate |
+| Agricultural production (PAM) | 1612 | — | candidate |
+| Livestock production (PPM) | 3939 | — | candidate |
+| Companies by sector (CEMPRE) | 6450 | — | candidate |
+| Employed workers per industry | 6461 | — | candidate |
+| Gini coefficient | 7435 | 10681 | ✅ (PNAD Contínua, N3 only) |
+| Household services (water/sewage/garbage) | 10099 | 381 | ✅ (Censo 2022; classes 2037 / 11558 / 67) |
+| HDI components | 9818 | — | candidate |
 
 > **Important:** IBGE periodically revises table IDs. Always verify a table ID against
-> the live metadata endpoint before wiring it: `GET /agregados/{table}/metadados`
+> the live metadata endpoint before wiring it: `GET /agregados/{table}/metadados`. The two
+> corrections above (urbanization 1378→9922; household income ≠ 7435) were found exactly
+> this way.
 
 ### Example Requests
 

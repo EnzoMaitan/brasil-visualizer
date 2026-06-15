@@ -120,7 +120,8 @@ docker compose up --build
 | Redis | `localhost:6379` |
 
 ```bash
-# Full stack + Brazil worker (once the worker exists)
+# Full stack + Brazil worker (once docker-compose.brazil.yml is added; the worker itself
+# already runs standalone — see apps/workers/brazil/README.md)
 docker compose -f docker-compose.yml -f docker-compose.brazil.yml up --build
 ```
 
@@ -138,7 +139,8 @@ brasil-visualizer/
     backend/           NestJS API + queue consumer       (planned)
     workers/
       _template/       copy-me scaffold for a new source  ✓
-      brazil/          IBGE/SICONFI/DataSUS/ANEEL worker  (planned)
+      brazil/          IBGE worker (demographics/wealth/   ◑ IBGE done (UF); SICONFI/
+                       public services, UF)                 DataSUS/ANEEL/Transparência planned
   packages/
     worker-sdk/        Python BaseWorker + models         ✓
     contracts/         JSON schemas for queue messages    ✓
@@ -194,14 +196,20 @@ All free; all official Brazilian government open data.
 
 ## Project status
 
-🚧 **Foundation + frontend.** In place: the Python worker SDK, the language-neutral message
-contracts, the core Docker Compose stack, the full design/data-source documentation, and
-the **Phase 1 frontend** — the full map UI (all 8 modes, hover tooltip, click→detail
-sidebar with mini-charts, state search, year slider, EN⇄PT-BR, free zoom/pan, Tweaks
-panel), running on clearly-labeled **synthetic** data over real IBGE geometry. Not yet
-built: the Brazil worker implementation and the NestJS backend — once those land, the
-frontend's isolated `src/data/` layer points at the live API. See the roadmap above and
-[CLAUDE.md](CLAUDE.md) for the build order.
+🚧 **Foundation + frontend + first worker.** In place: the Python worker SDK, the
+language-neutral message contracts, the core Docker Compose stack, the full design/data-source
+documentation, and the **Phase 1 frontend** — the full map UI (all 8 modes, hover tooltip,
+click→detail sidebar with mini-charts, state search, year slider, EN⇄PT-BR, free zoom/pan,
+Tweaks panel), running on clearly-labeled **synthetic** data over real IBGE geometry.
+
+The **Brazil IBGE worker** is now implemented (`apps/workers/brazil`): it pulls live IBGE
+SIDRA data for demographics, wealth, and public services across all 27 UFs, computes the
+derived metrics in pandas, and emits a contract-valid snapshot
+(`python main.py snapshot` → `output/snapshot-BR-ibge.json`). Not yet built: the worker's
+remaining sources (SICONFI, DataSUS, ANEEL, Portal da Transparência), the municipality
+level, and the NestJS backend — once the backend lands, the frontend's isolated `src/data/`
+layer points at the live API. See the roadmap above and [CLAUDE.md](CLAUDE.md) for the
+build order.
 
 ---
 

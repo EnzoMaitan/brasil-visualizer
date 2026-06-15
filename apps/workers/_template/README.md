@@ -56,9 +56,9 @@ vocabulary and per-level availability live in the root `CLAUDE.md` §13 and
 | Theme | Example keys |
 |---|---|
 | `demographics` | `population`, `population_density`, `urbanization_rate`, `literacy_rate` |
-| `wealth` | `gdp_total`, `household_income_avg`, `gini_coefficient`, `fiscal_autonomy_ratio` |
+| `wealth` | `gdp_total`, `gdp_share_agriculture`/`_industry`/`_services`, `pib_per_capita`, `household_income_avg`, `gini_coefficient`, `fiscal_autonomy_ratio` |
 | `infrastructure` | `hospital_beds_per_100k`, `physicians_per_100k`, `energy_capacity_mw` |
-| `public_services` | `infant_mortality_rate`, `vaccination_coverage`, `federal_servants_density` |
+| `public_services` | `infant_mortality_rate`, `vaccination_coverage`, `federal_servants_density`, `water_supply_rate`, `sewage_adequate_rate`, `garbage_collection_rate` |
 
 If your source has an indicator not yet listed, add it under the right theme here **and**
 in CLAUDE.md §13.

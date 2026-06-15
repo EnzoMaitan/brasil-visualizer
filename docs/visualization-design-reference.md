@@ -151,23 +151,34 @@ All political data is excluded for this project's lifetime.
 
 ---
 
+> **Implementation note (reconciled 2026-06-15):** the IBGE worker (`apps/workers/brazil`)
+> is built for Demographics, Wealth, and Public Services at UF level. The SIDRA Table cells
+> below were reconciled against live IBGE `/metadados`; several pre-implementation IDs had
+> drifted and are corrected here. The authoritative, verified catalogue lives in
+> `apps/workers/brazil/ibge/reference.py`. "Implemented" notes mark what the worker emits
+> today; everything else remains planned.
+
 ### Theme 1 — Demographics
 *Paradox equivalent: Population panel, age pyramid, cultural composition map mode.*
 *Default map mode — shown on first load.*
 
 | Indicator | Source | SIDRA Table | N3 (UF) | N6 (Municipio) |
 |-----------|--------|-------------|---------|----------------|
-| Total population | IBGE SIDRA | 9514 | ✅ | ✅ |
-| Population density (hab/km²) | IBGE SIDRA | 1301 | ✅ | ✅ |
+| Total population | IBGE SIDRA | 9514 (Censo 2022, var 93) | ✅ | ✅ |
+| Population density (hab/km²) | IBGE SIDRA | derived: 9514 pop ÷ 1301 area (var 615) | ✅ | ✅ |
 | Age structure (pyramid data) | IBGE SIDRA | 9906 | ✅ | ✅ |
-| Urbanization rate (%) | IBGE SIDRA | 1378 | ✅ | ✅ |
-| Literacy rate (%) | IBGE SIDRA | 9543 | ✅ | ✅ |
-| Birth rate (‰) | IBGE SIDRA | 2612 | ✅ | ✅ |
-| Death rate (‰) | IBGE SIDRA | 2612 | ✅ | ✅ |
+| Urbanization rate (%) | IBGE SIDRA | 9922 (Censo 2022) — **was 1378, which is 2010-only** | ✅ | ✅ |
+| Literacy rate (%) | IBGE SIDRA | 9543 (Censo 2022, var 2513) | ✅ | ✅ |
+| Birth rate (‰) | IBGE SIDRA | derived: 2612 live births (var 218) ÷ population | ✅ | ✅ |
+| Death rate (‰) | Registro Civil / DataSUS | **deferred** — 2612 holds live births only, no deaths | ⚠️ | ⚠️ |
 
 **Derived metrics (computed in Python worker):**
-- `taxa_crescimento_natural` = birth rate − death rate
-- `razao_dependencia` = (population < 15 + population > 64) / population 15–64
+- `taxa_crescimento_natural` = birth rate − death rate *(planned — needs a death-rate source)*
+- `razao_dependencia` = (population < 15 + population > 64) / population 15–64 *(planned)*
+
+> ✅ **Implemented in the IBGE worker** (UF, verified IDs): `population`,
+> `population_density`, `literacy_rate`, `urbanization_rate`, `birth_rate`.
+> Planned: `age_structure` (9906), `death_rate`, and the two derived metrics above.
 
 Demographics is the only theme where **every indicator is available at N6**, making it
 the natural first layer to implement for the municipality zoom.
@@ -181,14 +192,20 @@ the natural first layer to implement for the municipality zoom.
 |-----------|--------|----------------------|---------|----------------|
 | GDP total (R$) | IBGE SIDRA | 5938 | ✅ | ⚠️ Verify — PIB Municipal may use a different table; check `/agregados/5938/metadados` |
 | GDP by sector: agriculture / industry / services (%) | IBGE SIDRA | 5938 | ✅ | ⚠️ Same caveat |
-| Average household income (R$) | IBGE SIDRA | 7435 | ✅ | ✅ |
-| Gini coefficient | IBGE SIDRA | 7435 | ✅ | ⚠️ May be state-level only — verify |
+| Average household income (R$) | IBGE SIDRA | **TBD — 7435 is the Gini table, not income**; verify a rendimento table | ⚠️ | ⚠️ |
+| Gini coefficient | IBGE SIDRA | 7435 (var 10681, PNAD Contínua) | ✅ | ❌ N3 only (PNAD) |
 | Employed workers by sector | IBGE SIDRA | 6461 | ✅ | ✅ |
 | Companies by sector (CEMPRE) | IBGE SIDRA | 6450 | ✅ | ✅ |
 | Bolsa Família: beneficiaries as % of population | Portal da Transparência | `/bolsa-familia-por-municipio` | ✅ (aggregated) | ✅ (native) |
 | Federal transfers received (R$) | SICONFI | `/rreo` | ✅ | ❌ State only |
 | Fiscal autonomy ratio (derived, %) | SICONFI | `/rreo` | ✅ | ❌ State only |
 | Public debt per capita (R$) | SICONFI | `/rgf` | ✅ | ❌ State only |
+
+> ✅ **Implemented in the IBGE worker** (UF, verified IDs): `gdp_total` (5938 var 37),
+> `gdp_share_agriculture` / `gdp_share_industry` / `gdp_share_services` (5938 VA vars
+> 513 / 517 / 6575+525 ÷ 498), `pib_per_capita` (derived), `gini_coefficient`
+> (7435 var 10681). Planned: `household_income_avg`, `employment_by_sector` (6461),
+> `companies_by_sector` (6450), and all SICONFI / Transparência rows.
 
 **Derived metrics (computed in Python worker):**
 - `razao_autonomia_fiscal` = own revenue / total revenue × 100
@@ -247,9 +264,21 @@ This is the most technically complex piece in the project — defer to Phase 3.
 |-----------|--------|--------|---------|----------------|
 | Infant mortality rate (‰) | DataSUS | SIM + SINASC | ✅ | ✅ |
 | Vaccination coverage (%) | DataSUS | SI-PNI | ✅ | ✅ |
-| Social program beneficiaries (%) | IBGE SIDRA | 9920 | ✅ | ✅ |
-| Public social spending (R$) | IBGE SIDRA | 9922 | ✅ | ⚠️ Verify at N6 |
+| Water supply — % households on general network | IBGE SIDRA | 10099 (Censo 2022, class 2037) | ✅ | ✅ |
+| Adequate sewage — % households | IBGE SIDRA | 10099 (Censo 2022, class 11558) | ✅ | ✅ |
+| Garbage collection — % households | IBGE SIDRA | 10099 (Censo 2022, class 67) | ✅ | ✅ |
 | Federal public servants density | Portal da Transparência | `/servidores?ufExercicio={UF}` | ✅ | ✅ |
+
+> **Reconciliation:** earlier drafts mapped this theme to IBGE tables **9920**
+> (`social_program_beneficiaries`) and **9922** (`public_social_spending`); live `/metadados`
+> verification (2026-06-15) showed **9920 is gazelle-company employment** and **9922 is
+> household occupancy** — neither is a social-program dataset. Social-program coverage comes
+> from Portal da Transparência (Bolsa Família, listed under Wealth). IBGE's public-services
+> contribution is instead the **Censo 2022 household-service** indicators above (table 10099).
+>
+> ✅ **Implemented in the IBGE worker** (UF, verified IDs): `water_supply_rate`,
+> `sewage_adequate_rate`, `garbage_collection_rate`. Planned: the DataSUS and Transparência
+> rows and the derived composite below.
 
 **Derived metrics (computed in Python worker):**
 - `taxa_mortalidade_infantil` = (deaths < 1yr / live births) × 1000
