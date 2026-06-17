@@ -524,7 +524,7 @@ formulas live in [`docs/visualization-design-reference.md`](docs/visualization-d
 | Theme | Example indicator keys |
 |---|---|
 | `demographics` | `population`, `population_density`, `age_structure`, `urbanization_rate`, `literacy_rate`, `birth_rate`, `death_rate` |
-| `wealth` | `gdp_total`, `gdp_by_sector`, `gdp_share_agriculture`, `gdp_share_industry`, `gdp_share_services`, `pib_per_capita`, `household_income_avg`, `gini_coefficient`, `employment_by_sector`, `companies_by_sector`, `bolsa_familia_coverage`, `fiscal_autonomy_ratio`, `public_debt_per_capita` |
+| `wealth` | `gdp_total`, `gdp_by_sector`, `gdp_share_agriculture`, `gdp_share_industry`, `gdp_share_services`, `pib_per_capita`, `household_income_avg`, `gini_coefficient`, `employment_by_sector`, `companies_by_sector`, `bolsa_familia_coverage`, `fiscal_autonomy_ratio`, `own_revenue`, `federal_transfers`, `public_debt_per_capita` |
 | `infrastructure` | `hospital_beds_per_100k`, `physicians_per_100k`, `energy_capacity_mw`, `energy_mix_hydro`, `energy_mix_solar`, `energy_mix_wind`, `energy_mix_thermal` |
 | `public_services` | `infant_mortality_rate`, `vaccination_coverage`, `social_program_beneficiaries`, `public_social_spending`, `federal_servants_density`, `water_supply_rate`, `sewage_adequate_rate`, `garbage_collection_rate` |
 
@@ -615,15 +615,18 @@ enabled at the current zoom — never hardcoded.
 - **Phase 1 — UF level, all 4 themes.** The portfolio deliverable. Highest-impact,
   most-available indicators: population, literacy, average income, GDP by sector, hospital
   beds, energy mix, infant mortality. Map-mode switching + sidebar working end to end.
-  → **Frontend UI is built** (`apps/frontend`): all 8 modes, hover tooltip, click→detail
-  sidebar with mini-charts, state search, year slider, EN⇄PT-BR, free zoom/pan, and a
-  Tweaks panel — running on synthetic data.
-  → **Brazil IBGE worker is built** (`apps/workers/brazil`): live IBGE SIDRA collection for
-  demographics, wealth, and public services across all 27 UFs, with derived metrics in
-  pandas and a contract-valid snapshot artifact (`python main.py snapshot`).
-  **Remaining for Phase 1:** the worker's other sources (SICONFI fiscal, DataSUS health,
-  ANEEL energy, Transparência social) and the NestJS backend, then point the frontend's
-  `src/data/` layer at the live API.
+  → **Frontend UI is built and wired to the live API** (`apps/frontend`): all 8 modes, hover
+  tooltip, click→detail sidebar (with click-an-indicator-to-recolor), state search, year
+  slider, EN⇄PT-BR, free zoom/pan, Tweaks panel. Demographics, Economic Profile, Fiscal
+  Health, and Energy Matrix render live data; the rest are greyed pending their workers.
+  → **Brazil worker is built** (`apps/workers/brazil`): live **IBGE** (demographics, wealth,
+  public services), **ANEEL** (energy), and **SICONFI** (fiscal) across all 27 UFs, derived
+  metrics in pandas, contract-valid snapshot + MongoDB loader.
+  → **NestJS backend is built** (`apps/backend`): country-agnostic read API over MongoDB, in
+  Docker.
+  **Remaining for Phase 1:** **DataSUS** (health) and **Portal da Transparência** (social) —
+  both blocked externally (pysus 2.x is an impractical async rewrite; Transparência needs a
+  Gov.br token); IBGE workforce/employment-by-sector; and the municipality (N6) level.
 - **Phase 2 — Municipality (N6) level** for Demographics, Wealth, Public Services. Same
   schema and zoom interaction; mainly a second scraping pass and the children endpoint.
 - **Phase 3 — Municipality Infrastructure (ANEEL).** GeoPandas spatial join of plant

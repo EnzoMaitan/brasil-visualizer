@@ -139,8 +139,8 @@ brasil-visualizer/
     backend/           NestJS read API over MongoDB      ◑ read API done; queue consumer + Redis planned
     workers/
       _template/       copy-me scaffold for a new source  ✓
-      brazil/          IBGE worker (demographics/wealth/   ◑ IBGE done (UF); SICONFI/
-                       public services, UF)                 DataSUS/ANEEL/Transparência planned
+      brazil/          Brazil worker (UF)                 ◑ IBGE + ANEEL + SICONFI done;
+                                                            DataSUS/Transparência blocked (worker README)
   packages/
     worker-sdk/        Python BaseWorker + models         ✓
     contracts/         JSON schemas for queue messages    ✓
@@ -202,17 +202,19 @@ documentation, and the **Phase 1 frontend** — the full map UI (all 8 modes, ho
 click→detail sidebar with mini-charts, state search, year slider, EN⇄PT-BR, free zoom/pan,
 Tweaks panel), running on clearly-labeled **synthetic** data over real IBGE geometry.
 
-The **Brazil IBGE worker** is implemented (`apps/workers/brazil`): it pulls live IBGE SIDRA
-data for demographics, wealth, and public services across all 27 UFs, computes the derived
-metrics in pandas, emits a contract-valid snapshot, and loads it into MongoDB.
+The **Brazil worker** is implemented (`apps/workers/brazil`): live **IBGE** (demographics,
+wealth, public services), **ANEEL** (energy), and **SICONFI** (fiscal) across all 27 UFs,
+with derived metrics in pandas, a contract-valid snapshot, and a MongoDB loader.
 
-The **NestJS backend** is implemented as a first iteration (`apps/backend`): a
-country-agnostic read API over the `geodata` MongoDB serving the worker's data
-(`/countries`, `/countries/:code/regions`, `/themes`, …), running in Docker alongside Mongo.
-Not yet built: the worker's remaining sources (SICONFI, DataSUS, ANEEL, Portal da
-Transparência) and the municipality level; the backend's RabbitMQ consumer and Redis cache
-(data is loaded via the worker's `seed_mongo.py` for now); and wiring the frontend's
-isolated `src/data/` layer to the live API. Real map geometry is **deferred** (see the
+The **NestJS backend** (`apps/backend`) is a first-iteration country-agnostic read API over
+the `geodata` MongoDB (`/countries`, `/countries/:code/regions`, `/themes`, …), in Docker.
+
+The **frontend** is wired to that live API: **Demographics, Economic Profile, Fiscal Health,
+and Energy Matrix** render real data; the remaining modes are greyed until their workers
+land. Not yet built: **DataSUS** (health) and **Portal da Transparência** (social) — both
+externally blocked (pysus 2.x is an impractical async rewrite; Transparência needs a Gov.br
+token); the municipality level; and the backend's RabbitMQ consumer + Redis cache (data is
+loaded via the worker's `seed_mongo.py` for now). Real map geometry is **deferred** (see the
 geometry decision in the design reference). See the roadmap above and [CLAUDE.md](CLAUDE.md).
 
 ---

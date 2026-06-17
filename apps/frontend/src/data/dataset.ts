@@ -97,6 +97,28 @@ function adapt(region: ApiRegion, year: number): StateRecord {
     rec.dominant_sector = serv >= ind && serv >= agro ? "services" : ind >= agro ? "industry" : "agriculture";
   }
   set("gini_coefficient", num(wea.gini_coefficient));
+  // Wealth — fiscal (SICONFI). own_revenue/federal_transfers are R$ → millions (moneyM).
+  set("fiscal_autonomy_ratio", num(wea.fiscal_autonomy_ratio));
+  const own = num(wea.own_revenue);
+  set("own_revenue", own != null ? own / 1e6 : undefined);
+  const fed = num(wea.federal_transfers);
+  set("federal_transfers", fed != null ? fed / 1e6 : undefined);
+
+  // Infrastructure — energy (ANEEL). Rename energy_mix_* → mix_*, derive dominant_energy.
+  const inf = I.infrastructure ?? {};
+  set("energy_capacity_mw", num(inf.energy_capacity_mw));
+  const hydro = num(inf.energy_mix_hydro);
+  const solar = num(inf.energy_mix_solar);
+  const wind = num(inf.energy_mix_wind);
+  const thermal = num(inf.energy_mix_thermal);
+  set("mix_hydro", hydro);
+  set("mix_solar", solar);
+  set("mix_wind", wind);
+  set("mix_thermal", thermal);
+  if (hydro != null && solar != null && wind != null && thermal != null) {
+    const mix: Array<[string, number]> = [["hydro", hydro], ["thermal", thermal], ["wind", wind], ["solar", solar]];
+    rec.dominant_energy = mix.reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+  }
 
   // Public services — no current map mode consumes these yet, but carry them through.
   set("water_supply_rate", num(pub.water_supply_rate));

@@ -24,7 +24,9 @@ import sys
 
 from worker_sdk import BaseWorker, RegionData
 
+from aneel import AneelClient, AneelPipeline
 from ibge import IbgePipeline, SidraClient
+from siconfi import SiconfiClient, SiconfiPipeline
 from snapshot import write_snapshot
 
 logging.basicConfig(
@@ -47,12 +49,42 @@ class BrazilWorker(BaseWorker):
         self._limit = limit
 
     def fetch(self) -> list[RegionData]:
-        """Collect and normalize all IBGE indicator data into RegionData (see ibge.pipeline)."""
+        """
+        Collect and normalize all of Brazil's region data into RegionData.
+
+        Each source enriches a shared ``{code: RegionData}`` map so one region accumulates
+        indicators across themes/sources. Sources fail independently — a source going down
+        degrades its indicators to absent rather than aborting the whole run.
+        """
+        regions_by_code: dict[str, RegionData] = {}
+
+        # IBGE — the base (demographics, wealth, public_services). Builds the regions.
         with SidraClient() as client:
-            pipeline = IbgePipeline(client)
-            regions = pipeline.build_regions(limit=self._limit)
-        logger.info("Built %d regions from IBGE", len(regions))
+            for region in IbgePipeline(client).build_regions(limit=self._limit):
+                regions_by_code[region.code] = region
+        logger.info("IBGE: built %d regions", len(regions_by_code))
+
+        # ANEEL — energy (infrastructure). Enriches the regions above.
+        self._enrich("ANEEL", lambda: AneelPipeline(AneelClient()).enrich(regions_by_code))
+
+        # SICONFI — fiscal (wealth). Throttled to ≤1 req/s; ~30s for all 27 UFs.
+        def _siconfi() -> None:
+            with SiconfiClient() as client:
+                SiconfiPipeline(client).enrich(regions_by_code)
+
+        self._enrich("SICONFI", _siconfi)
+
+        regions = list(regions_by_code.values())
+        logger.info("Built %d regions total", len(regions))
         return regions
+
+    @staticmethod
+    def _enrich(name: str, run) -> None:
+        """Run a source's enrichment, logging and swallowing failures (never abort)."""
+        try:
+            run()
+        except Exception as exc:  # noqa: BLE001 — one source must not kill the others
+            logger.error("%s enrichment failed: %s", name, exc)
 
 
 def _run_snapshot(args: argparse.Namespace) -> int:

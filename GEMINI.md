@@ -615,15 +615,18 @@ enabled at the current zoom — never hardcoded.
 - **Phase 1 — UF level, all 4 themes.** The portfolio deliverable. Highest-impact,
   most-available indicators: population, literacy, average income, GDP by sector, hospital
   beds, energy mix, infant mortality. Map-mode switching + sidebar working end to end.
-  → **Frontend UI is built** (`apps/frontend`): all 8 modes, hover tooltip, click→detail
-  sidebar with mini-charts, state search, year slider, EN⇄PT-BR, free zoom/pan, and a
-  Tweaks panel — running on synthetic data.
-  → **Brazil IBGE worker is built** (`apps/workers/brazil`): live IBGE SIDRA collection for
-  demographics, wealth, and public services across all 27 UFs, with derived metrics in
-  pandas and a contract-valid snapshot artifact (`python main.py snapshot`).
-  **Remaining for Phase 1:** the worker's other sources (SICONFI fiscal, DataSUS health,
-  ANEEL energy, Transparência social) and the NestJS backend, then point the frontend's
-  `src/data/` layer at the live API.
+  → **Frontend UI is built and wired to the live API** (`apps/frontend`): all 8 modes, hover
+  tooltip, click→detail sidebar (with click-an-indicator-to-recolor), state search, year
+  slider, EN⇄PT-BR, free zoom/pan, Tweaks panel. Demographics, Economic Profile, Fiscal
+  Health, and Energy Matrix render live data; the rest are greyed pending their workers.
+  → **Brazil worker is built** (`apps/workers/brazil`): live **IBGE** (demographics, wealth,
+  public services), **ANEEL** (energy), and **SICONFI** (fiscal) across all 27 UFs, derived
+  metrics in pandas, contract-valid snapshot + MongoDB loader.
+  → **NestJS backend is built** (`apps/backend`): country-agnostic read API over MongoDB, in
+  Docker.
+  **Remaining for Phase 1:** **DataSUS** (health) and **Portal da Transparência** (social) —
+  both blocked externally (pysus 2.x is an impractical async rewrite; Transparência needs a
+  Gov.br token); IBGE workforce/employment-by-sector; and the municipality (N6) level.
 - **Phase 2 — Municipality (N6) level** for Demographics, Wealth, Public Services. Same
   schema and zoom interaction; mainly a second scraping pass and the children endpoint.
 - **Phase 3 — Municipality Infrastructure (ANEEL).** GeoPandas spatial join of plant
