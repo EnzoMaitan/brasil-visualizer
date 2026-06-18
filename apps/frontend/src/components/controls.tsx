@@ -1,11 +1,11 @@
 // Top bar (brand, year slider, search, language, data badge) + the mode-switcher rail.
 import { useState } from "react";
-import { useViz } from "../context/VizContext";
-import { PALETTES, MODES, THEME_ORDER, sampleRamp } from "../viz/modes";
+import { useViz, statsOf } from "../context/VizContext";
+import { PALETTES, MODES, THEME_ORDER, sampleRamp, MODE_BY_KEY } from "../viz/modes";
 import type { Mode } from "../viz/modes";
 import { BR_STATES_META } from "../data/states-meta";
 import { BR_DATA } from "../data/dataset";
-import type { Lang } from "../data/types";
+import type { Lang, StateRecord } from "../data/types";
 
 const META = BR_STATES_META;
 
@@ -26,13 +26,17 @@ function ModeChip({ mode, paletteKey }: { mode: Mode; paletteKey: string }) {
   return <span className="mode-chip" style={{ background: `linear-gradient(90deg, ${stops.join(",")})` }}></span>;
 }
 
-export function ModeSwitcher({ active, onChange, paletteKey, available }: {
+export function ModeSwitcher({ active, onChange, paletteKey, available, metricProp, onMetric, records }: {
   active: string; onChange: (k: string) => void; paletteKey: string; available?: Set<string>;
+  metricProp?: string | null; onMetric?: (prop: string) => void; records?: StateRecord[];
 }) {
   const { t } = useViz();
   const byTheme: Record<string, Mode[]> = {};
   MODES.forEach((m) => { (byTheme[m.theme] = byTheme[m.theme] || []).push(m); });
   const isEnabled = (key: string) => !available || available.has(key);
+  const activeMode = MODE_BY_KEY[active];
+  // Which prop is currently driving the choropleth — metric override or mode default.
+  const activeProp = metricProp ?? activeMode?.prop ?? activeMode?.headlineProp;
   return (
     <nav className="modes">
       <div className="modes-title eyebrow">{t("ui.modes")}</div>
@@ -41,18 +45,42 @@ export function ModeSwitcher({ active, onChange, paletteKey, available }: {
           <div className="mode-group-label">{t("theme." + theme)}</div>
           {(byTheme[theme] || []).map((m) => {
             const enabled = isEnabled(m.key);
+            const isActive = m.key === active;
             return (
-              <button key={m.key}
-                className={"mode-btn" + (m.key === active ? " mode-btn--active" : "") + (enabled ? "" : " mode-btn--disabled")}
-                onClick={() => enabled && onChange(m.key)}
-                disabled={!enabled}
-                title={enabled ? undefined : t("ui.noDataMode")}>
-                <ModeChip mode={m} paletteKey={paletteKey} />
-                <span className="mode-btn-text">
-                  <span className="mode-btn-name">{t("mode." + m.key + ".name")}</span>
-                  <span className="mode-btn-desc">{enabled ? t("mode." + m.key + ".desc") : t("ui.noDataMode")}</span>
-                </span>
-              </button>
+              <div key={m.key}>
+                <button
+                  className={"mode-btn" + (isActive ? " mode-btn--active" : "") + (enabled ? "" : " mode-btn--disabled")}
+                  onClick={() => enabled && onChange(m.key)}
+                  disabled={!enabled}
+                  title={enabled ? undefined : t("ui.noDataMode")}>
+                  <ModeChip mode={m} paletteKey={paletteKey} />
+                  <span className="mode-btn-text">
+                    <span className="mode-btn-name">{t("mode." + m.key + ".name")}</span>
+                    <span className="mode-btn-desc">{enabled ? t("mode." + m.key + ".desc") : t("ui.noDataMode")}</span>
+                  </span>
+                </button>
+                {isActive && onMetric && (
+                  <div className="mode-indicators">
+                    {m.indicators.map((ind) => {
+                      const s = records ? statsOf(records, ind.prop) : { min: NaN, max: NaN };
+                      const hasData = Number.isFinite(s.min);
+                      const isIndActive = ind.prop === activeProp;
+                      const dotColor = ind.dir === -1 ? "var(--neg)" : ind.dir === 1 ? "var(--pos)" : "var(--accent)";
+                      const cls = "mode-ind-item" + (isIndActive ? " mode-ind-item--active" : "") + (!hasData ? " mode-ind-item--nodata" : "");
+                      const dot = <span className="mode-ind-dot" style={isIndActive ? { background: dotColor } : undefined} />;
+                      const label = <span className="mode-ind-label">{t("ind." + ind.key)}</span>;
+                      return hasData ? (
+                        <button key={ind.key} type="button" className={cls}
+                          onClick={() => onMetric(ind.prop)} title={t("ui.showOnMap")}>
+                          {dot}{label}
+                        </button>
+                      ) : (
+                        <div key={ind.key} className={cls}>{dot}{label}</div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>

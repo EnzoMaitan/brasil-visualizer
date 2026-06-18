@@ -297,6 +297,45 @@ button.ind-row:hover { background: var(--surface-2); }
 .mode-btn--disabled { opacity: 0.42; cursor: not-allowed; filter: grayscale(0.7); }
 .mode-btn--disabled:hover { background: none; }
 
+/* ---- Mode indicator sub-items (left rail, shown under the active mode) ---- */
+.mode-indicators {
+  margin: 0 0 6px 10px;
+  padding: 3px 0 3px 8px;
+  border-left: 2px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.mode-ind-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px 5px 6px;
+  border-radius: 7px;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.3;
+  width: 100%;
+}
+button.mode-ind-item { cursor: pointer; transition: background .14s; }
+button.mode-ind-item:hover { background: var(--surface-2); }
+.mode-ind-item--active { color: var(--accent); font-weight: 600; }
+.mode-ind-item--nodata { opacity: 0.4; cursor: default; }
+.mode-ind-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line);
+  flex: none;
+  transition: background .2s;
+}
+.mode-ind-item--active .mode-ind-dot { background: var(--accent); }
+@media (max-width: 980px) { .mode-indicators { display: none; } }
+
 /* --- empty indicator value (missing prop) --- */
 .ind-val--empty { color: var(--ink-3); }
 

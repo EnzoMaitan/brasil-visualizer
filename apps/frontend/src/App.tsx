@@ -148,7 +148,8 @@ export default function App() {
 
         <main className="layout">
           <aside className="rail rail-left">
-            <ModeSwitcher active={modeKeyEff} onChange={(k) => setModeKey(k)} paletteKey={tw.palette} available={available} />
+            <ModeSwitcher active={modeKeyEff} onChange={(k) => setModeKey(k)} paletteKey={tw.palette} available={available}
+              metricProp={metricProp} onMetric={onMetric} records={records} />
           </aside>
 
           <section className="map-area">
