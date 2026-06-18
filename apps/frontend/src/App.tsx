@@ -5,11 +5,13 @@ import type { VizContextValue } from "./context/VizContext";
 import { makeT } from "./i18n";
 import type { Lang } from "./data/types";
 import { BR_DATA, loadData } from "./data/dataset";
+import { loadMunicipalities } from "./data/municipalities";
+import type { MuniPath } from "./data/types";
 import { MODE_BY_KEY, makeScale, availableModeKeys, PALETTES, paletteKeys } from "./viz/modes";
 import type { Mode } from "./viz/modes";
 import { BrazilMap } from "./components/BrazilMap";
 import { Legend, Tooltip, Detail, Overview } from "./components/panels";
-import { ModeSwitcher, Search, YearSlider, LangToggle, GearButton, Brand } from "./components/controls";
+import { ModeSwitcher, Search, YearSlider, LangToggle, GearButton, MunicipalityToggle, Brand } from "./components/controls";
 import { useTweaks } from "./components/tweaks/useTweaks";
 import type { TweakValues } from "./components/tweaks/useTweaks";
 import { TweaksPanel, TweakSection, TweakSlider, TweakToggle, TweakSelect } from "./components/tweaks/TweaksPanel";
@@ -49,6 +51,9 @@ export default function App() {
   const [tw, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [ready, setReady] = useState(false);
+  const [showMuni, setShowMuni] = useState<boolean>(() => ls.get("bv.showMuni", false));
+  const [muniGeo, setMuniGeo] = useState<MuniPath[] | null>(null);
+  const [muniLoading, setMuniLoading] = useState(false);
   const tipRef = useRef<HTMLDivElement | null>(null);
 
   // Load the live dataset once (falls back to synthetic if the API is down).
@@ -62,6 +67,18 @@ export default function App() {
   useEffect(() => ls.set("bv.lang", lang), [lang]);
   useEffect(() => ls.set("bv.mode", modeKey), [modeKey]);
   useEffect(() => ls.set("bv.year", year), [year]);
+  useEffect(() => ls.set("bv.showMuni", showMuni), [showMuni]);
+
+  // Lazy-load the municipality mesh (its own chunk) the first time it's needed — either
+  // toggled on this session, or restored from a persisted "on" preference.
+  useEffect(() => {
+    if (!showMuni || muniGeo || muniLoading) return;
+    setMuniLoading(true);
+    loadMunicipalities()
+      .then(setMuniGeo)
+      .catch((err) => console.warn("[muni] failed to load municipality geometry:", err))
+      .finally(() => setMuniLoading(false));
+  }, [showMuni, muniGeo, muniLoading]);
 
   const t = useMemo(() => makeT(lang), [lang]);
   const records = useMemo(() => (ready ? BR_DATA.all(year) : []), [year, ready]);
@@ -141,6 +158,7 @@ export default function App() {
           </div>
           <div className="topbar-right">
             <Search onSelect={(c) => setSelected(c)} onHover={setHovered} />
+            <MunicipalityToggle value={showMuni} loading={muniLoading} onChange={setShowMuni} />
             <LangToggle lang={lang} onChange={setLang} />
             <GearButton onClick={() => setTweaksOpen((o) => !o)} />
           </div>
@@ -155,6 +173,7 @@ export default function App() {
           <section className="map-area">
             <BrazilMap records={records} mode={mode} scale={scale}
               hovered={hovered} selected={selected}
+              municipalities={showMuni ? muniGeo : null}
               onHover={setHovered} onSelect={setSelected} onMove={onMove} />
             <Legend mode={mode} scale={scale} />
           </section>

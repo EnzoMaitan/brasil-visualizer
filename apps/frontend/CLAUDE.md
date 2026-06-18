@@ -53,9 +53,20 @@ render "—".
 API serves no geometry; the map keeps rendering `src/data/br-states.geo.ts`. Real,
 non-synthetic reference data: `states-meta.ts` (names/capitals/codes/areas) + the geometry.
 
+**Municipality borders (optional layer).** A topbar toggle overlays all 5,570 municipalities,
+each filled with its **parent state's** choropleth color (so there is zero color mismatch —
+`muni.code.slice(0,2)` → state record → `scale.colorOf`) plus thin borders. The mesh
+(`src/data/br-municipalities.geo.ts`, ~2.8MB, real IBGE borders) is **generated** by
+`scripts/build-municipalities-geo.mjs` and **lazy-imported** by `src/data/municipalities.ts`
+(its own Vite chunk) only when the toggle is first enabled — initial load is unaffected. The
+overlay is non-interactive (`pointer-events: none`); hover/selection/tooltips stay at state
+level (Phase 1 has no municipality-level data). The `MunicipalityLayer` is `React.memo`'d so
+it never re-renders on hover/pan/zoom. To regenerate: `node scripts/build-municipalities-geo.mjs`.
+
 ## Layout of `src/`
 
-- `data/` — geometry, state metadata, synthetic indicators, shared types.
+- `data/` — geometry (states bundled; municipalities lazy-loaded via `municipalities.ts`),
+  state metadata, synthetic indicators, shared types.
 - `i18n/` — flat dot-keyed EN / PT-BR strings + `makeT` (falls back EN → raw key, never throws).
 - `viz/` — `modes.ts` (map-mode defs, palettes, color scales, formatting), `projection.ts` (GeoJSON→SVG).
 - `context/` — `VizContext` (t, locale, tweaks) + stats/rank helpers.

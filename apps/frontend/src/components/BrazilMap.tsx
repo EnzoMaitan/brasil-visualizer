@@ -1,11 +1,11 @@
 // The Brazil choropleth map: real IBGE borders projected to SVG, recolored per mode.
 // Free zoom & pan: mouse-wheel zooms toward the cursor, click-drag pans, and the
 // on-map +/−/reset buttons step the zoom about the center.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useViz } from "../context/VizContext";
 import { BR_GEO } from "../viz/projection";
 import { BR_STATES_META } from "../data/states-meta";
-import type { StateRecord } from "../data/types";
+import type { MuniPath, StateRecord } from "../data/types";
 import type { Mode, Scale } from "../viz/modes";
 
 const GEO = BR_GEO;
@@ -19,18 +19,43 @@ const NUDGE: Record<string, [number, number]> = {
 
 interface View { k: number; x: number; y: number }
 
+// ---- Municipality overlay ------------------------------------------------
+// All 5,570 municipalities, each filled with its PARENT STATE's color (same scale + record
+// → zero color mismatch by construction) plus a thin border. Memoized so it re-renders only
+// when the data/scale/border change — never on hover, selection, pan, or zoom (pan/zoom is a
+// transform on the parent <g>). pointer-events: none so the interactive state layer beneath
+// keeps handling hover/click/tooltips.
+const MunicipalityLayer = memo(function MunicipalityLayer({ paths, recByCode, scale, borderWidth }: {
+  paths: MuniPath[]; recByCode: Record<string, StateRecord>; scale: Scale; borderWidth: number;
+}) {
+  return (
+    <g className="muni-layer">
+      {paths.map((m) => {
+        const r = recByCode[m.parentCode];
+        return (
+          <path key={m.code} d={m.d} className="municipality"
+            fill={r ? scale.colorOf(r) : "var(--state-empty)"}
+            stroke="var(--muni-stroke)" strokeWidth={Math.max(0.3, borderWidth * 0.4)}
+            vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        );
+      })}
+    </g>
+  );
+});
+
 export interface BrazilMapProps {
   records: StateRecord[];
   mode: Mode;
   scale: Scale;
   hovered: string | null;
   selected: string | null;
+  municipalities: MuniPath[] | null;
   onHover: (code: string | null) => void;
   onSelect: (code: string | null) => void;
   onMove: (e: React.PointerEvent) => void;
 }
 
-export function BrazilMap({ records, scale, hovered, selected, onHover, onSelect, onMove }: BrazilMapProps) {
+export function BrazilMap({ records, scale, hovered, selected, municipalities, onHover, onSelect, onMove }: BrazilMapProps) {
   const { tweaks } = useViz();
   const recByCode = useMemo(() => Object.fromEntries(records.map((r) => [r.code, r])), [records]);
   const bw = tweaks.borderWidth;
@@ -177,6 +202,9 @@ export function BrazilMap({ records, scale, hovered, selected, onHover, onSelect
               );
             })}
           </g>
+          {municipalities ? (
+            <MunicipalityLayer paths={municipalities} recByCode={recByCode} scale={scale} borderWidth={bw} />
+          ) : null}
           {selected && selected !== hovered ? highlightPath(selected, "selected") : null}
           {hovered ? highlightPath(hovered, hovered === selected ? "selected" : "hover") : null}
         </g>

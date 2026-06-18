@@ -152,6 +152,30 @@ export function LangToggle({ lang, onChange }: { lang: Lang; onChange: (l: Lang)
   );
 }
 
+// ---- Municipality borders toggle ----
+export function MunicipalityToggle({ value, loading, onChange }: {
+  value: boolean; loading: boolean; onChange: (v: boolean) => void;
+}) {
+  const { t } = useViz();
+  const label = t("ui.municipalities");
+  return (
+    <button
+      className={"tool-btn tool-btn--toggle" + (value ? " is-active" : "")}
+      onClick={() => onChange(!value)}
+      title={label} aria-label={label} aria-pressed={value}>
+      {loading ? (
+        <span className="tool-spinner" aria-hidden="true" />
+      ) : (
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+          strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" />
+          <path d="M9 3v15M15 6v15" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 // ---- Settings / gear button: opens the Tweaks panel ----
 export function GearButton({ onClick }: { onClick: () => void }) {
   const { t } = useViz();

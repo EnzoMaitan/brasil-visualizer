@@ -36,3 +36,24 @@ export interface StatesGeoJSON {
   type: "FeatureCollection";
   features: StateFeature[];
 }
+
+// --- Municipalities (lazy-loaded; see data/municipalities.ts) ---
+// Compact shape emitted by scripts/build-municipalities-geo.mjs: just the IBGE code
+// (7 digits; first 2 = parent UF code) and the geometry. No GeoJSON wrapper per feature.
+export interface MuniFeature {
+  code: string;
+  geometry:
+    | { type: "Polygon"; coordinates: PolygonCoords }
+    | { type: "MultiPolygon"; coordinates: MultiPolygonCoords };
+}
+
+export interface MunicipalitiesGeo {
+  features: MuniFeature[];
+}
+
+// A municipality projected to an SVG path, tagged with its parent UF for color inheritance.
+export interface MuniPath {
+  code: string;
+  parentCode: string;
+  d: string;
+}

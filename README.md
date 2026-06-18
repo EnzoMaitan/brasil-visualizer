@@ -45,6 +45,10 @@ glance, and a showcase of the worker's analytical pipeline.
 | Default | All states | `N3` (UF) | 27 |
 | Click a state | Its municipalities | `N6` | ~5,570 |
 
+A topbar toggle also overlays **all 5,570 municipality borders** at once, each filled with
+its parent state's color. That mesh is real IBGE geometry, lazy-loaded on demand (its own
+chunk) so the initial load stays light.
+
 The data model treats **`period` (year) as a first-class key**, so adding a new year of
 data is an insert — never a migration. A year slider is a later UI addition over data
 that's already shaped for it.

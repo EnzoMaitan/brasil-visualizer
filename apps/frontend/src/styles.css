@@ -15,6 +15,7 @@
   --neg: oklch(0.58 0.16 28);
   --state-stroke: oklch(0.99 0.003 250 / 0.85);
   --state-empty: oklch(0.9 0.006 250);
+  --muni-stroke: oklch(0.3 0.02 260 / 0.28);
   --hover-stroke: oklch(0.32 0.03 260);
   --sel-stroke: oklch(0.22 0.02 260);
   --glow-color: oklch(0.55 0.13 250 / 0.65);
@@ -44,6 +45,7 @@
   --neg: oklch(0.7 0.16 28);
   --state-stroke: oklch(0.18 0.012 264 / 0.9);
   --state-empty: oklch(0.3 0.012 264);
+  --muni-stroke: oklch(0.12 0.01 264 / 0.45);
   --hover-stroke: oklch(0.96 0.01 260);
   --sel-stroke: oklch(1 0 0);
   --glow-color: oklch(0.72 0.13 248 / 0.7);
@@ -130,6 +132,11 @@ button { font-family: inherit; cursor: pointer; }
 .tool-btn:active { transform: translateY(0.5px); }
 .tool-btn svg { transition: transform .35s cubic-bezier(.34,1.4,.5,1); }
 .tool-btn:hover svg { transform: rotate(60deg); }
+/* municipality toggle: a tool-btn that stays lit while active (no rotate-on-hover) */
+.tool-btn--toggle:hover svg { transform: none; }
+.tool-btn--toggle.is-active { background: var(--accent); color: var(--on-swatch); border-color: var(--accent); }
+.tool-btn--toggle.is-active:hover { background: var(--accent); color: var(--on-swatch); }
+.tool-spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: spin 0.7s linear infinite; }
 
 /* ---- Layout ---- */
 .layout { flex: 1; display: grid; grid-template-columns: var(--rail-w) 1fr var(--rail-r-w); grid-template-rows: minmax(0, 1fr); min-height: 0; }
@@ -165,6 +172,10 @@ button { font-family: inherit; cursor: pointer; }
 .state { transition: fill .35s ease, opacity .2s ease; cursor: pointer; }
 .state:hover { opacity: 1 !important; }
 .state--dim { opacity: 0.42; }
+/* municipality overlay: non-interactive (state layer beneath handles events);
+   no fill transition — 5,570 simultaneous transitions would jank on mode change. */
+.muni-layer { pointer-events: none; }
+.municipality { transition: none; shape-rendering: geometricPrecision; }
 .map-label { font-size: 12px; font-weight: 600; fill: oklch(1 0 0 / 0.92); paint-order: stroke; stroke: oklch(0.2 0.02 260 / 0.32); stroke-width: 2.4px; stroke-linejoin: round; pointer-events: none; letter-spacing: 0.01em; }
 .map-label--active { fill: oklch(1 0 0); stroke: oklch(0.18 0.02 260 / 0.55); stroke-width: 2.8px; }
 

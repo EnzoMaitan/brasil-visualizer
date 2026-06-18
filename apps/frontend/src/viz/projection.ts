@@ -2,7 +2,7 @@
 // Equirectangular projection with cos(centerLat) aspect correction — accurate
 // enough for a national choropleth and keeps Brazil's familiar silhouette.
 import { BR_STATES_GEOJSON } from "../data/br-states.geo";
-import type { Position, StateFeature } from "../data/types";
+import type { MuniFeature, Position, StateFeature } from "../data/types";
 
 export interface StatePath {
   d: string;
@@ -95,3 +95,14 @@ gj.features.forEach((f) => {
 });
 
 export const BR_GEO = { width: W, height: H, paths, project };
+
+// Project a whole Polygon/MultiPolygon to one SVG path string, using the SAME transform
+// (bounds + scale) as the states above — so municipalities register perfectly with them.
+// Used by the lazy municipality loader (data/municipalities.ts); kept here so all projection
+// logic lives in one place.
+export function geometryToPath(geom: MuniFeature["geometry"]): string {
+  const polys = geom.type === "Polygon" ? [geom.coordinates] : geom.coordinates;
+  let d = "";
+  for (const poly of polys) for (const ring of poly) d += ringPath(ring);
+  return d;
+}
