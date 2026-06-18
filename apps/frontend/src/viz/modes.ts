@@ -51,6 +51,7 @@ function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 function oklch(L: number, C: number, H: number) { return `oklch(${L.toFixed(4)} ${C.toFixed(4)} ${H.toFixed(2)})`; }
 // ramp = array of [L,C,H]; sample at t in [0,1]
 export function sampleRamp(ramp: Ramp, t: number): string {
+  if (!Number.isFinite(t)) t = 0; // guard missing/NaN values (e.g. partial municipality data)
   t = Math.max(0, Math.min(1, t));
   const n = ramp.length - 1;
   const x = t * n;
@@ -234,8 +235,21 @@ export interface Scale {
   sampleAt?: (v: number) => string;
 }
 
+// Percentile of a sorted ascending numeric array (linear interpolation), p in [0,1].
+function quantile(sorted: number[], p: number): number {
+  if (!sorted.length) return NaN;
+  const idx = (sorted.length - 1) * p;
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
 // Build a color function for a mode given the current year's data set.
-export function makeScale(mode: Mode, records: StateRecord[], paletteKey: string): Scale {
+// `robust`: for sequential scales, clamp the range to the 2nd–98th percentile so a few
+// extreme outliers (common across ~5,570 municipalities) don't wash out the whole map —
+// values beyond the clamp saturate to the ramp ends. The legend shows the clamped range.
+export function makeScale(
+  mode: Mode, records: StateRecord[], paletteKey: string, opts: { robust?: boolean } = {},
+): Scale {
   const pal = PALETTES[paletteKey] || PALETTES.editorial;
   if (mode.scale === "cat") {
     return {
@@ -257,6 +271,11 @@ export function makeScale(mode: Mode, records: StateRecord[], paletteKey: string
       catColor: (c) => pal.cat[c] || "oklch(0.7 0 0)",
       sampleAt: (v) => sampleRamp(pal.div, (v - lo) / (hi - lo)),
     };
+  }
+  if (opts.robust && vals.length > 20) {
+    const sorted = [...vals].sort((a, b) => a - b);
+    const lo = quantile(sorted, 0.02), hi = quantile(sorted, 0.98);
+    if (Number.isFinite(lo) && Number.isFinite(hi) && hi > lo) { min = lo; max = hi; }
   }
   if (min === max) max = min + 1;
   return {

@@ -1,7 +1,7 @@
 // The Brazil choropleth map: real IBGE borders projected to SVG, recolored per mode.
 // Free zoom & pan: mouse-wheel zooms toward the cursor, click-drag pans, and the
 // on-map +/−/reset buttons step the zoom about the center.
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useViz } from "../context/VizContext";
 import { BR_GEO } from "../viz/projection";
 import { BR_STATES_META } from "../data/states-meta";
@@ -20,23 +20,43 @@ const NUDGE: Record<string, [number, number]> = {
 interface View { k: number; x: number; y: number }
 
 // ---- Municipality overlay ------------------------------------------------
-// All 5,570 municipalities, each filled with its PARENT STATE's color (same scale + record
-// → zero color mismatch by construction) plus a thin border. Memoized so it re-renders only
-// when the data/scale/border change — never on hover, selection, pan, or zoom (pan/zoom is a
-// transform on the parent <g>). pointer-events: none so the interactive state layer beneath
-// keeps handling hover/click/tooltips.
-const MunicipalityLayer = memo(function MunicipalityLayer({ paths, recByCode, scale, borderWidth }: {
-  paths: MuniPath[]; recByCode: Record<string, StateRecord>; scale: Scale; borderWidth: number;
+// All 5,570 municipalities. When the active mode has municipality-level data (`muniScale` +
+// `muniByCode`), each municipality is colored by its OWN value; otherwise it falls back to
+// its PARENT STATE's color (zero mismatch by construction). Memoized so it re-renders only
+// when data/scale/border/interactivity change — never on hover, selection, pan, or zoom
+// (pan/zoom is a transform on the parent <g>). When own-data is active the layer is
+// interactive (hover tooltip + click→parent state); otherwise pointer-events: none so the
+// state layer beneath keeps handling interaction.
+const MunicipalityLayer = memo(function MunicipalityLayer({
+  paths, recByCode, scale, muniByCode, muniScale, muniProp, borderWidth, interactive, onHoverMuni, onSelectParent,
+}: {
+  paths: MuniPath[]; recByCode: Record<string, StateRecord>; scale: Scale;
+  muniByCode: Record<string, StateRecord>; muniScale: Scale | null; muniProp: string | null;
+  borderWidth: number; interactive: boolean;
+  onHoverMuni: (code: string | null) => void; onSelectParent: (parentCode: string) => void;
 }) {
+  // A municipality is colored by its own value only when it actually has a usable value for
+  // the active metric (categorical → a string; numeric → a finite number); otherwise it falls
+  // back to its parent state's color. This keeps partial-coverage municipalities consistent.
+  const hasOwn = (rec: StateRecord | undefined): boolean => {
+    if (!muniScale || !muniProp || !rec) return false;
+    const v = rec[muniProp];
+    return muniScale.kind === "cat" ? typeof v === "string" : typeof v === "number" && Number.isFinite(v);
+  };
   return (
-    <g className="muni-layer">
+    <g className={"muni-layer" + (interactive ? " muni-layer--interactive" : "")}>
       {paths.map((m) => {
-        const r = recByCode[m.parentCode];
+        const own = muniByCode[m.code];
+        const parent = recByCode[m.parentCode];
+        const fill = hasOwn(own) ? muniScale!.colorOf(own)
+          : parent ? scale.colorOf(parent) : "var(--state-empty)";
         return (
           <path key={m.code} d={m.d} className="municipality"
-            fill={r ? scale.colorOf(r) : "var(--state-empty)"}
+            fill={fill}
             stroke="var(--muni-stroke)" strokeWidth={Math.max(0.3, borderWidth * 0.4)}
-            vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+            vectorEffect="non-scaling-stroke" strokeLinejoin="round"
+            onMouseEnter={interactive ? () => onHoverMuni(m.code) : undefined}
+            onClick={interactive ? (e) => { e.stopPropagation(); onSelectParent(m.parentCode); } : undefined} />
         );
       })}
     </g>
@@ -50,12 +70,16 @@ export interface BrazilMapProps {
   hovered: string | null;
   selected: string | null;
   municipalities: MuniPath[] | null;
+  muniByCode: Record<string, StateRecord>;
+  muniScale: Scale | null;
+  hoveredMuni: string | null;
   onHover: (code: string | null) => void;
+  onHoverMuni: (code: string | null) => void;
   onSelect: (code: string | null) => void;
   onMove: (e: React.PointerEvent) => void;
 }
 
-export function BrazilMap({ records, scale, hovered, selected, municipalities, onHover, onSelect, onMove }: BrazilMapProps) {
+export function BrazilMap({ records, mode, scale, hovered, selected, municipalities, muniByCode, muniScale, hoveredMuni, onHover, onHoverMuni, onSelect, onMove }: BrazilMapProps) {
   const { tweaks } = useViz();
   const recByCode = useMemo(() => Object.fromEntries(records.map((r) => [r.code, r])), [records]);
   const bw = tweaks.borderWidth;
@@ -149,6 +173,19 @@ export function BrazilMap({ records, scale, hovered, selected, municipalities, o
     if (suppressClick.current) { suppressClick.current = false; return; }
     onSelect(code);
   }
+  // Stable (memo-friendly) parent selection for municipality clicks — honors drag-suppression.
+  const selectParent = useCallback((parentCode: string) => {
+    if (suppressClick.current) { suppressClick.current = false; return; }
+    onSelect(parentCode);
+  }, [onSelect]);
+
+  // Path lookup for drawing the hovered-municipality outline (cheap, one element).
+  const muniPathByCode = useMemo(() => {
+    const map = new Map<string, string>();
+    if (municipalities) for (const p of municipalities) map.set(p.code, p.d);
+    return map;
+  }, [municipalities]);
+  const muniInteractive = muniScale != null;
 
   function fillFor(code: string) {
     const r = recByCode[code];
@@ -184,7 +221,7 @@ export function BrazilMap({ records, scale, hovered, selected, municipalities, o
         viewBox={`0 0 ${W} ${H}`}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove}
         onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
-        onMouseLeave={() => onHover(null)}>
+        onMouseLeave={() => { onHover(null); onHoverMuni(null); }}>
         <rect x="0" y="0" width={W} height={H} fill="var(--map-bg)"
           onMouseEnter={() => onHover(null)} onClick={() => guardedSelect(null)} />
         {/* zoom/pan group */}
@@ -203,7 +240,16 @@ export function BrazilMap({ records, scale, hovered, selected, municipalities, o
             })}
           </g>
           {municipalities ? (
-            <MunicipalityLayer paths={municipalities} recByCode={recByCode} scale={scale} borderWidth={bw} />
+            <MunicipalityLayer paths={municipalities} recByCode={recByCode} scale={scale}
+              muniByCode={muniByCode} muniScale={muniScale} muniProp={mode.prop ?? null} borderWidth={bw}
+              interactive={muniInteractive} onHoverMuni={onHoverMuni} onSelectParent={selectParent} />
+          ) : null}
+          {/* hovered-municipality outline (own-data mode) */}
+          {muniInteractive && hoveredMuni && muniPathByCode.has(hoveredMuni) ? (
+            <path d={muniPathByCode.get(hoveredMuni)!}
+              style={{ fill: "none", stroke: "var(--sel-stroke)", strokeWidth: bw + 1.4,
+                filter: blur ? `drop-shadow(0 0 ${blur}px var(--glow-color))` : "none", pointerEvents: "none" }}
+              vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
           ) : null}
           {selected && selected !== hovered ? highlightPath(selected, "selected") : null}
           {hovered ? highlightPath(hovered, hovered === selected ? "selected" : "hover") : null}

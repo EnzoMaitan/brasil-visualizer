@@ -1,16 +1,16 @@
 // App root: state, layout, tooltip positioning, Tweaks wiring.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VizContext } from "./context/VizContext";
 import type { VizContextValue } from "./context/VizContext";
 import { makeT } from "./i18n";
 import type { Lang } from "./data/types";
-import { BR_DATA, loadData } from "./data/dataset";
+import { BR_DATA, loadData, loadMuniData } from "./data/dataset";
 import { loadMunicipalities } from "./data/municipalities";
 import type { MuniPath } from "./data/types";
-import { MODE_BY_KEY, makeScale, availableModeKeys, PALETTES, paletteKeys } from "./viz/modes";
+import { MODE_BY_KEY, makeScale, isModeAvailable, availableModeKeys, PALETTES, paletteKeys } from "./viz/modes";
 import type { Mode } from "./viz/modes";
 import { BrazilMap } from "./components/BrazilMap";
-import { Legend, Tooltip, Detail, Overview } from "./components/panels";
+import { Legend, Tooltip, MuniTooltip, Detail, Overview } from "./components/panels";
 import { ModeSwitcher, Search, YearSlider, LangToggle, GearButton, MunicipalityToggle, Brand } from "./components/controls";
 import { useTweaks } from "./components/tweaks/useTweaks";
 import type { TweakValues } from "./components/tweaks/useTweaks";
@@ -54,6 +54,8 @@ export default function App() {
   const [showMuni, setShowMuni] = useState<boolean>(() => ls.get("bv.showMuni", false));
   const [muniGeo, setMuniGeo] = useState<MuniPath[] | null>(null);
   const [muniLoading, setMuniLoading] = useState(false);
+  const [muniReady, setMuniReady] = useState(false); // municipality indicator data loaded
+  const [hoveredMuni, setHoveredMuni] = useState<string | null>(null);
   const tipRef = useRef<HTMLDivElement | null>(null);
 
   // Load the live dataset once (falls back to synthetic if the API is down).
@@ -69,16 +71,17 @@ export default function App() {
   useEffect(() => ls.set("bv.year", year), [year]);
   useEffect(() => ls.set("bv.showMuni", showMuni), [showMuni]);
 
-  // Lazy-load the municipality mesh (its own chunk) the first time it's needed — either
-  // toggled on this session, or restored from a persisted "on" preference.
+  // Lazy-load the municipality mesh (its own chunk) AND the municipality indicator data the
+  // first time the layer is needed — either toggled on this session or restored from a
+  // persisted "on" preference. Both are fetched on demand to keep initial load fast.
   useEffect(() => {
-    if (!showMuni || muniGeo || muniLoading) return;
+    if (!showMuni || muniLoading || (muniGeo && muniReady)) return;
     setMuniLoading(true);
-    loadMunicipalities()
-      .then(setMuniGeo)
-      .catch((err) => console.warn("[muni] failed to load municipality geometry:", err))
+    Promise.all([loadMunicipalities(), loadMuniData()])
+      .then(([geo, dataOk]) => { setMuniGeo(geo); setMuniReady(dataOk); })
+      .catch((err) => console.warn("[muni] failed to load municipality layer:", err))
       .finally(() => setMuniLoading(false));
-  }, [showMuni, muniGeo, muniLoading]);
+  }, [showMuni, muniGeo, muniReady, muniLoading]);
 
   const t = useMemo(() => makeT(lang), [lang]);
   const records = useMemo(() => (ready ? BR_DATA.all(year) : []), [year, ready]);
@@ -123,6 +126,28 @@ export default function App() {
   const onMetric = (prop: string) => setMetricProp((p) => (p === prop ? null : prop));
 
   const scale = useMemo(() => makeScale(mode, records, tw.palette), [mode, records, tw.palette]);
+
+  // Municipality choropleth: when the layer is on and the active mode has N6 data, color each
+  // municipality by its OWN value on a municipality-derived scale; otherwise it falls back to
+  // inheriting the parent state's color (handled in BrazilMap). The legend follows suit.
+  const muniOn = showMuni && muniReady;
+  const muniByCode = useMemo(() => (muniOn ? BR_DATA.muniByCode(year) : {}), [muniOn, year]);
+  const muniRecords = useMemo(() => (muniOn ? BR_DATA.allMuni(year) : []), [muniOn, year]);
+  const muniHasData = useMemo(
+    () => muniRecords.length > 0 && isModeAvailable(mode, muniRecords),
+    [muniRecords, mode],
+  );
+  const muniScale = useMemo(
+    () => (muniHasData ? makeScale(mode, muniRecords, tw.palette, { robust: true }) : null),
+    [muniHasData, mode, muniRecords, tw.palette],
+  );
+  // The legend reflects whatever choropleth is actually on screen.
+  const displayScale = muniHasData ? muniScale! : scale;
+
+  const onHoverMuni = useCallback((code: string | null) => {
+    setHoveredMuni(code);
+    if (code) setHovered(null); // muni tooltip replaces the state tooltip while hovering munis
+  }, []);
 
   const ctx = useMemo<VizContextValue>(() => ({ t, locale: lang, lang, tweaks: tw }), [t, lang, tw]);
 
@@ -174,8 +199,9 @@ export default function App() {
             <BrazilMap records={records} mode={mode} scale={scale}
               hovered={hovered} selected={selected}
               municipalities={showMuni ? muniGeo : null}
-              onHover={setHovered} onSelect={setSelected} onMove={onMove} />
-            <Legend mode={mode} scale={scale} />
+              muniByCode={muniByCode} muniScale={muniScale} hoveredMuni={hoveredMuni}
+              onHover={setHovered} onHoverMuni={onHoverMuni} onSelect={setSelected} onMove={onMove} />
+            <Legend mode={mode} scale={displayScale} />
           </section>
 
           <aside className="rail rail-right">
@@ -185,8 +211,10 @@ export default function App() {
           </aside>
         </main>
 
-        <div className="tooltip-layer" ref={tipRef} style={{ display: hovered ? "block" : "none" }}>
-          {hovered ? <Tooltip code={hovered} mode={mode} scale={scale} records={records} /> : null}
+        <div className="tooltip-layer" ref={tipRef} style={{ display: (hovered || (hoveredMuni && muniHasData)) ? "block" : "none" }}>
+          {hoveredMuni && muniHasData
+            ? <MuniTooltip code={hoveredMuni} mode={mode} scale={muniScale!} rec={muniByCode[hoveredMuni]} name={BR_DATA.muniName(hoveredMuni)} />
+            : hovered ? <Tooltip code={hovered} mode={mode} scale={scale} records={records} /> : null}
         </div>
 
         <TweaksPanel title="Tweaks" open={tweaksOpen} onClose={() => setTweaksOpen(false)}>

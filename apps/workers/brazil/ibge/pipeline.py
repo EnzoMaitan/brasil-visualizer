@@ -106,39 +106,67 @@ class IbgePipeline:
     # Fetching
     # ------------------------------------------------------------------ #
 
-    def _safe_fetch(self, query: ref.SidraQuery) -> dict[str, dict[str, Observation]]:
-        """Run one query, degrading to empty results (not an exception) on failure."""
+    def _safe_fetch(
+        self, query: ref.SidraQuery, nivel: str
+    ) -> dict[str, dict[str, Observation]]:
+        """Run one query at ``nivel``, degrading to empty results (not an exception) on failure."""
         try:
-            return self._client.fetch(query)
+            return self._client.fetch(query, nivel=nivel)
         except SidraError as exc:
             logger.error("Skipping SIDRA table %s: %s", query.table, exc)
             return {var: {} for var in query.variables}
 
-    def _resolve_names(self) -> dict[str, str]:
-        """UF code → name, preferring the live IBGE list, falling back to the static table."""
-        names = {uf.code: uf.name for uf in ref.UFS}
+    def _fetch_gdp(self, nivel: str, *, split: bool) -> dict[str, dict[str, Observation]]:
+        """
+        Fetch the PIB dos Municípios variables. The 6-variable combined query is fine at UF
+        but IBGE returns HTTP 500 for it at N6 (response too large), so for fine-grained
+        levels we request each variable separately and merge — same result, smaller calls.
+        """
+        if not split:
+            return self._safe_fetch(ref.Q_GDP, nivel)
+        merged: dict[str, dict[str, Observation]] = {}
+        for var in ref.Q_GDP.variables:
+            single = ref.SidraQuery(ref.Q_GDP.table, (var,), ref.Q_GDP.classification)
+            merged.update(self._safe_fetch(single, nivel))
+        return merged
+
+    def _resolve_names(self, level: ref.LevelConfig) -> dict[str, str]:
+        """region code → name, from the live IBGE localities list (UFs fall back to the static table)."""
+        names = {uf.code: uf.name for uf in ref.UFS} if level.nivel == ref.LEVEL_UF_NIVEL else {}
         try:
-            names.update(self._client.localities(ref.Q_POPULATION.table))
+            names.update(self._client.localities(ref.Q_POPULATION.table, nivel=level.nivel))
         except SidraError as exc:
-            logger.warning("Could not fetch live UF names, using static table: %s", exc)
+            logger.warning("Could not fetch live names at %s: %s", level.nivel, exc)
         return names
 
-    def _assemble_frame(self) -> pd.DataFrame:
-        """Fetch every query and build the per-UF frame with raw + derived columns."""
-        population = self._safe_fetch(ref.Q_POPULATION)[ref.Q_POPULATION.variables[0]]
-        area = self._safe_fetch(ref.Q_AREA)[ref.Q_AREA.variables[0]]
-        literacy = self._safe_fetch(ref.Q_LITERACY)[ref.Q_LITERACY.variables[0]]
-        births = self._safe_fetch(ref.Q_LIVE_BIRTHS)[ref.Q_LIVE_BIRTHS.variables[0]]
-        residents_total = self._safe_fetch(ref.Q_RESIDENTS_TOTAL)[ref.Q_RESIDENTS_TOTAL.variables[0]]
-        residents_urban = self._safe_fetch(ref.Q_RESIDENTS_URBAN)[ref.Q_RESIDENTS_URBAN.variables[0]]
-        gdp = self._safe_fetch(ref.Q_GDP)
-        gini = self._safe_fetch(ref.Q_GINI)[ref.Q_GINI.variables[0]]
-        hh_total = self._safe_fetch(ref.Q_HOUSEHOLDS_TOTAL)[ref.HH_VAR]
-        hh_water = self._safe_fetch(ref.Q_HOUSEHOLDS_WATER)[ref.HH_VAR]
-        hh_sewage = self._safe_fetch(ref.Q_HOUSEHOLDS_SEWAGE)[ref.HH_VAR]
-        hh_garbage = self._safe_fetch(ref.Q_HOUSEHOLDS_GARBAGE)[ref.HH_VAR]
+    def _assemble_frame(self, level: ref.LevelConfig) -> pd.DataFrame:
+        """Fetch every query at ``level`` and build the per-region frame with raw + derived columns."""
+        nivel = level.nivel
+        # Gini (PNAD) and live births (Registro Civil) are not served / not viable at the
+        # municipality level (no N6 data / request times out), so skip them there — the
+        # affected indicators simply degrade to absent for municipalities.
+        fine_grained = nivel != ref.LEVEL_UF_NIVEL
 
-        df = pd.DataFrame(index=[uf.code for uf in ref.UFS])
+        population = self._safe_fetch(ref.Q_POPULATION, nivel)[ref.Q_POPULATION.variables[0]]
+        area = self._safe_fetch(ref.Q_AREA, nivel)[ref.Q_AREA.variables[0]]
+        literacy = self._safe_fetch(ref.Q_LITERACY, nivel)[ref.Q_LITERACY.variables[0]]
+        births = {} if fine_grained else self._safe_fetch(ref.Q_LIVE_BIRTHS, nivel)[ref.Q_LIVE_BIRTHS.variables[0]]
+        residents_total = self._safe_fetch(ref.Q_RESIDENTS_TOTAL, nivel)[ref.Q_RESIDENTS_TOTAL.variables[0]]
+        residents_urban = self._safe_fetch(ref.Q_RESIDENTS_URBAN, nivel)[ref.Q_RESIDENTS_URBAN.variables[0]]
+        gdp = self._fetch_gdp(nivel, split=fine_grained)
+        gini = {} if fine_grained else self._safe_fetch(ref.Q_GINI, nivel)[ref.Q_GINI.variables[0]]
+        hh_total = self._safe_fetch(ref.Q_HOUSEHOLDS_TOTAL, nivel)[ref.HH_VAR]
+        hh_water = self._safe_fetch(ref.Q_HOUSEHOLDS_WATER, nivel)[ref.HH_VAR]
+        hh_sewage = self._safe_fetch(ref.Q_HOUSEHOLDS_SEWAGE, nivel)[ref.HH_VAR]
+        hh_garbage = self._safe_fetch(ref.Q_HOUSEHOLDS_GARBAGE, nivel)[ref.HH_VAR]
+
+        # The region spine: UFs keep their canonical order; finer levels use whatever codes
+        # the population query returned (one row per municipality).
+        if level.nivel == ref.LEVEL_UF_NIVEL:
+            index = [uf.code for uf in ref.UFS]
+        else:
+            index = sorted(population.keys())
+        df = pd.DataFrame(index=index)
 
         # Raw values + their true reference years.
         df["population"] = pd.Series(_values(population))
@@ -190,24 +218,32 @@ class IbgePipeline:
         rounded = round(float(value), precision)
         return int(rounded) if precision == 0 else rounded
 
-    def build_regions(self, limit: int | None = None) -> list[RegionData]:
-        """Return one ``RegionData`` per UF (optionally capped to ``limit`` for testing)."""
-        df = self._assemble_frame()
-        names = self._resolve_names()
+    def build_regions(
+        self, level: ref.LevelConfig = ref.UF_LEVEL, limit: int | None = None
+    ) -> list[RegionData]:
+        """Return one ``RegionData`` per region at ``level`` (optionally capped to ``limit``)."""
+        df = self._assemble_frame(level)
+        names = self._resolve_names(level)
 
-        ufs = ref.UFS[:limit] if limit else ref.UFS
+        codes = list(df.index)
+        if limit:
+            codes = codes[:limit]
+        is_uf = level.nivel == ref.LEVEL_UF_NIVEL
         regions: list[RegionData] = []
 
-        for uf in ufs:
-            row = df.loc[uf.code]
+        for code in codes:
+            row = df.loc[code]
+            uf = ref.UF_BY_CODE.get(code) if is_uf else None
             region = RegionData(
                 country_code=COUNTRY_CODE,
-                level=ref.LEVEL_NAME,
-                code=uf.code,
-                name=names.get(uf.code, uf.name),
+                level=level.level_name,
+                code=code,
+                # Municipality names come only from the live IBGE list; fall back to the code.
+                name=names.get(code, uf.name if uf else code),
                 period=SNAPSHOT_PERIOD,
-                parent_code=None,
-                abbrev=uf.abbrev,
+                # A municipality's parent is its UF — the first two digits of its IBGE code.
+                parent_code=None if is_uf else code[:2],
+                abbrev=uf.abbrev if uf else None,
                 source=PRIMARY_SOURCE,
             )
 
@@ -229,10 +265,10 @@ class IbgePipeline:
                 added += 1
 
             if added == 0:
-                logger.warning("UF %s (%s): no indicators resolved, skipping", uf.code, uf.abbrev)
+                logger.warning("%s %s: no indicators resolved, skipping", level.level_name, code)
                 continue
 
-            logger.info("UF %s (%s): %d indicators", uf.code, uf.abbrev, added)
             regions.append(region)
 
+        logger.info("%s: built %d regions", level.level_name, len(regions))
         return regions

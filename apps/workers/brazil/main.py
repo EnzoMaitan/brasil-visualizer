@@ -25,7 +25,7 @@ import sys
 from worker_sdk import BaseWorker, RegionData
 
 from aneel import AneelClient, AneelPipeline
-from ibge import IbgePipeline, SidraClient
+from ibge import MUNI_LEVEL, IbgePipeline, SidraClient
 from siconfi import SiconfiClient, SiconfiPipeline
 from snapshot import write_snapshot
 
@@ -78,6 +78,16 @@ class BrazilWorker(BaseWorker):
         logger.info("Built %d regions total", len(regions))
         return regions
 
+    def fetch_municipalities(self) -> list[RegionData]:
+        """
+        Collect municipality-level (N6) data — IBGE only.
+
+        ANEEL and SICONFI are UF-only sources, so municipalities carry just the IBGE themes
+        (demographics, wealth, public_services). Same `fetch()` contract: returns RegionData.
+        """
+        with SidraClient() as client:
+            return IbgePipeline(client).build_regions(level=MUNI_LEVEL, limit=self._limit)
+
     @staticmethod
     def _enrich(name: str, run) -> None:
         """Run a source's enrichment, logging and swallowing failures (never abort)."""
@@ -87,13 +97,24 @@ class BrazilWorker(BaseWorker):
             logger.error("%s enrichment failed: %s", name, exc)
 
 
+def collect_regions(worker: "BrazilWorker", level: str) -> list[RegionData]:
+    """Collect regions for the requested level(s): ``uf`` (default), ``municipio``, or ``all``."""
+    regions: list[RegionData] = []
+    if level in ("uf", "all"):
+        regions += worker.fetch()
+    if level in ("municipio", "all"):
+        regions += worker.fetch_municipalities()
+    return regions
+
+
 def _run_snapshot(args: argparse.Namespace) -> int:
     worker = BrazilWorker(limit=args.limit)
-    regions = worker.fetch()
+    regions = collect_regions(worker, args.level)
     if not regions:
         logger.error("No regions collected — refusing to write an empty snapshot")
         return 1
-    path = write_snapshot(regions, args.output, worker=WORKER_NAME)
+    filename = None if args.level == "uf" else f"snapshot-BR-ibge-{args.level}.json"
+    path = write_snapshot(regions, args.output, worker=WORKER_NAME, filename=filename)
     logger.info("Snapshot ready: %s", path)
     return 0
 
@@ -122,7 +143,13 @@ def main(argv: list[str] | None = None) -> int:
         "--limit",
         type=int,
         default=None,
-        help="only process the first N UFs (handy for quick local checks)",
+        help="only process the first N regions per level (handy for quick local checks)",
+    )
+    parser.add_argument(
+        "--level",
+        default="uf",
+        choices=("uf", "municipio", "all"),
+        help="which geographic level(s) to collect (default: uf — current behavior)",
     )
     args = parser.parse_args(argv)
 

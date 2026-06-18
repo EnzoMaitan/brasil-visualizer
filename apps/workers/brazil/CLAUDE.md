@@ -5,9 +5,19 @@ Per-app guide. Read [`../CLAUDE.md`](../CLAUDE.md) (workers) and the root
 
 ## What this is
 
-The Brazil data worker. Phase 1 implements **IBGE** collection at **UF** level for
-**demographics**, **wealth**, and **public_services** (14 indicators, all 27 states).
-See [`README.md`](README.md) for the indicator table and run instructions.
+The Brazil data worker. Implements **IBGE** collection for **demographics**, **wealth**, and
+**public_services** at both **UF** (N3, all 27 states) and **municipio** (N6, all 5,570
+municipalities) levels, plus ANEEL (energy) and SICONFI (fiscal) at UF only. See
+[`README.md`](README.md) for the indicator table and run instructions.
+
+**Level selection.** `IbgePipeline.build_regions(level=…)` takes a `LevelConfig`
+(`UF_LEVEL` / `MUNI_LEVEL` in `ibge/reference.py`); the SIDRA `nivel` (N3/N6) is threaded
+through `client.fetch(query, nivel)`. `main.py` / `seed_mongo.py` accept `--level
+{uf,municipio,all}` (default `uf`). At N6, gini (no N6 data) and live births (request times
+out) are skipped, and the multi-variable GDP query is split per-variable (the combined query
+500s at N6). Seed municipalities into the running Mongo with:
+`python seed_mongo.py --fetch --level municipio` — `seed_mongo` now **merges** the registry,
+so this adds the `municipio` level without clobbering the existing UF/ANEEL/SICONFI data.
 
 ## The one rule
 

@@ -62,11 +62,25 @@ UFS: tuple[UF, ...] = (
 
 UF_BY_CODE: dict[str, UF] = {uf.code: uf for uf in UFS}
 
-# IBGE geographic level for states (Unidade da Federação). See data-sources-reference §1.
-LEVEL_UF_NIVEL = "N3"
+# IBGE geographic levels (the "nivel" the SIDRA API expects). See data-sources-reference §1.
+LEVEL_UF_NIVEL = "N3"        # Unidade da Federação (states)
+LEVEL_MUNI_NIVEL = "N6"      # Município
 
-# The division-level name we publish (opaque string the backend/frontend never branch on).
+# The division-level names we publish (opaque strings the backend/frontend never branch on).
 LEVEL_NAME = "UF"
+LEVEL_MUNI_NAME = "municipio"
+
+
+@dataclass(frozen=True)
+class LevelConfig:
+    """One geographic level: the SIDRA ``nivel`` to query and the level name we publish."""
+
+    nivel: str        # SIDRA locality level, e.g. "N3" / "N6"
+    level_name: str   # published division name, e.g. "UF" / "municipio"
+
+
+UF_LEVEL = LevelConfig(LEVEL_UF_NIVEL, LEVEL_NAME)
+MUNI_LEVEL = LevelConfig(LEVEL_MUNI_NIVEL, LEVEL_MUNI_NAME)
 
 
 @dataclass(frozen=True)

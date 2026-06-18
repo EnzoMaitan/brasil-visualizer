@@ -87,6 +87,34 @@ export function Tooltip({ code, mode, scale, records }: { code: string; mode: Mo
   );
 }
 
+// ---- Municipality tooltip ----------------------------------------------
+// Lighter than the state Tooltip: municipalities carry a name + the active metric only
+// (no region/capital/area metadata, no multi-year trend). Colored by the muni scale.
+export function MuniTooltip({ code, mode, scale, rec, name }: {
+  code: string; mode: Mode; scale: Scale; rec: StateRecord | undefined; name?: string;
+}) {
+  const { t, locale } = useViz();
+  if (!rec) return null;
+  const spec = headlineSpec(mode);
+  const cat = mode.scale === "cat" ? (rec[mode.prop!] as string) : null;
+  const raw = rec[spec.prop];
+  return (
+    <div className="tooltip">
+      <div className="tooltip-head">
+        <span className="tooltip-name">{name || code}</span>
+      </div>
+      <div className="tooltip-region">{t("ui.municipality")}</div>
+      <div className="tooltip-metric">
+        <span className="tooltip-label">{t("ind." + spec.prop)}</span>
+        <span className="tooltip-value">
+          {cat ? <span className="tooltip-cat"><span className="dot" style={{ background: scale.catColor!(cat) }}></span>{t("cat." + cat)}</span> : null}
+          {typeof raw === "number" && Number.isFinite(raw) ? fval(raw, spec.kind, locale) : "—"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ---- Indicator row ------------------------------------------------------
 function IndicatorRow({ ind, rec, records, onMetric, active }: {
   ind: Mode["indicators"][number]; rec: StateRecord; records: StateRecord[];

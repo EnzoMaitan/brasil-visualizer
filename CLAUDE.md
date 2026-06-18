@@ -626,9 +626,16 @@ enabled at the current zoom — never hardcoded.
   Docker.
   **Remaining for Phase 1:** **DataSUS** (health) and **Portal da Transparência** (social) —
   both blocked externally (pysus 2.x is an impractical async rewrite; Transparência needs a
-  Gov.br token); IBGE workforce/employment-by-sector; and the municipality (N6) level.
-- **Phase 2 — Municipality (N6) level** for Demographics, Wealth, Public Services. Same
-  schema and zoom interaction; mainly a second scraping pass and the children endpoint.
+  Gov.br token); and IBGE workforce/employment-by-sector. (Municipality N6 for the IBGE
+  themes is now done — see Phase 2.)
+- **Phase 2 — Municipality (N6) level** for Demographics, Wealth, Public Services.
+  → **Done for IBGE:** the worker scrapes all 5,570 municipalities (`build_regions(level=MUNI_LEVEL)`,
+  `main.py --level municipio`); `seed_mongo.py` merges them into Mongo so the registry exposes
+  `levels: ["UF", "municipio"]`. The frontend's municipality layer now colors each municipality
+  by its **own** value (municipality-derived robust scale) for Demographics + Economic Profile,
+  with a hover tooltip; clicking a municipality opens its parent state. gini/births have no
+  viable N6 data so degrade to absent. **Remaining:** municipality-level health/social once
+  DataSUS/Transparência land.
 - **Phase 3 — Municipality Infrastructure (ANEEL).** GeoPandas spatial join of plant
   coordinates against IBGE municipality polygons — the most technically interesting piece.
 

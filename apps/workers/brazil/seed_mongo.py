@@ -53,13 +53,17 @@ def load_snapshot_file(path: str) -> dict:
         return json.load(handle)
 
 
-def build_fresh_snapshot(limit: int | None = None) -> dict:
+def build_fresh_snapshot(limit: int | None = None, level: str = "uf") -> dict:
     """Run the IBGE pipeline now and assemble the snapshot in memory (no file needed)."""
-    from main import BrazilWorker  # local import: reuse the worker's fetch()
+    from main import BrazilWorker, collect_regions  # local import: reuse the worker's fetch()
     from snapshot import build_snapshot
 
-    logger.info("Fetching a fresh snapshot from IBGE%s", f" (limit={limit})" if limit else "")
-    regions = BrazilWorker(limit=limit).fetch()
+    logger.info(
+        "Fetching a fresh snapshot from IBGE (level=%s%s)",
+        level,
+        f", limit={limit}" if limit else "",
+    )
+    regions = collect_regions(BrazilWorker(limit=limit), level)
     return build_snapshot(regions, worker="ibge")
 
 
@@ -98,6 +102,42 @@ def ensure_indexes(db: Database) -> None:
     logger.info("Ensured indexes on snapshots / countries / geometries")
 
 
+def _merge_registry(existing: dict | None, incoming: dict) -> dict:
+    """
+    Merge a fresh registry into the existing one so seeding a single level (e.g. municipio)
+    ADDS to what other levels already established rather than clobbering it. Mirrors how the
+    real backend would accumulate the registry as per-theme messages arrive (CLAUDE.md §7).
+    """
+    if not existing:
+        return incoming
+
+    def _union(key: str) -> list:
+        merged = list(existing.get(key, []))
+        for item in incoming.get(key, []):
+            if item not in merged:
+                merged.append(item)
+        return merged
+
+    available: dict[str, list[str]] = {
+        theme: list(keys) for theme, keys in existing.get("available_indicators", {}).items()
+    }
+    for theme, keys in incoming.get("available_indicators", {}).items():
+        bucket = available.setdefault(theme, [])
+        for key in keys:
+            if key not in bucket:
+                bucket.append(key)
+
+    return {
+        **existing,
+        **incoming,  # incoming wins for scalars (country_name, last_scraped, …)
+        "levels": sorted(set(existing.get("levels", [])) | set(incoming.get("levels", []))),
+        "themes": _union("themes"),
+        "periods": sorted(set(existing.get("periods", [])) | set(incoming.get("periods", []))),
+        "workers": _union("workers"),
+        "available_indicators": available,
+    }
+
+
 def upsert_snapshot(db: Database, snapshot: dict, *, drop: bool = False) -> dict:
     """Upsert the registry + per-region snapshot documents. Returns a small summary."""
     registry = snapshot["registry"]
@@ -132,9 +172,13 @@ def upsert_snapshot(db: Database, snapshot: dict, *, drop: bool = False) -> dict
             theme_writes += 1
         region_count += 1
 
+    # Merge into the existing registry (unless --drop asked for a clean slate) so seeding one
+    # level adds to the others instead of replacing the whole registry document.
+    existing = None if drop else db.countries.find_one({"country_code": country_code}, {"_id": 0})
+    merged = _merge_registry(existing, registry)
     db.countries.update_one(
         {"country_code": country_code},
-        {"$set": registry},
+        {"$set": merged},
         upsert=True,
     )
 
@@ -168,11 +212,17 @@ def main(argv: list[str] | None = None) -> int:
         help=f"MongoDB connection URL (default: {DEFAULT_MONGO_URL})",
     )
     parser.add_argument("--drop", action="store_true", help="delete existing docs for this country first")
-    parser.add_argument("--limit", type=int, default=None, help="with --fetch, only the first N UFs")
+    parser.add_argument("--limit", type=int, default=None, help="with --fetch, only the first N regions per level")
+    parser.add_argument(
+        "--level",
+        default="uf",
+        choices=("uf", "municipio", "all"),
+        help="with --fetch, which level(s) to collect (default: uf)",
+    )
     args = parser.parse_args(argv)
 
     if args.fetch:
-        snapshot = build_fresh_snapshot(limit=args.limit)
+        snapshot = build_fresh_snapshot(limit=args.limit, level=args.level)
     elif os.path.exists(args.snapshot):
         snapshot = load_snapshot_file(args.snapshot)
     else:

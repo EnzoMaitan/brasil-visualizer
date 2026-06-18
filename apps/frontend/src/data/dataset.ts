@@ -41,6 +41,11 @@ interface ApiRegion {
 // year -> code -> flat record
 let store: Record<number, Record<string, StateRecord>> = {};
 
+// Municipality (N6) data — loaded lazily (see loadMuniData), keyed the same way as `store`.
+let muniStore: Record<number, Record<string, StateRecord>> = {};
+let muniNames: Record<string, string> = {};
+let muniLoaded = false;
+
 export const BR_DATA = {
   source: "loading" as DataSource,
   years: [] as number[],
@@ -58,6 +63,18 @@ export const BR_DATA = {
     return BR_DATA.years
       .map((y) => store[y]?.[code]?.[prop])
       .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  },
+
+  // --- Municipality accessors (empty until loadMuniData resolves) ---
+  muniReady(): boolean { return muniLoaded; },
+  allMuni(year: number): StateRecord[] {
+    return Object.values(muniStore[year] ?? {});
+  },
+  muniByCode(year: number): Record<string, StateRecord> {
+    return muniStore[year] ?? {};
+  },
+  muniName(code: string): string | undefined {
+    return muniNames[code];
   },
 };
 
@@ -184,4 +201,49 @@ export async function loadData(): Promise<DataSource> {
     useSynthetic();
   }
   return BR_DATA.source;
+}
+
+// Lazy-load municipality (N6) indicator data — only when the municipality layer is first
+// enabled (the payload is ~5,570 regions). Resolves to true if municipality data is present.
+// Never rejects: if the API has no `municipio` level (e.g. synthetic fallback), it no-ops.
+let muniInFlight: Promise<boolean> | null = null;
+
+export async function loadMuniData(): Promise<boolean> {
+  if (muniLoaded) return true;
+  if (muniInFlight) return muniInFlight;
+  if (BR_DATA.source !== "live") return false; // synthetic fallback has no municipality feed
+  muniInFlight = (async () => {
+    try {
+      const countries = (await getJson(`/countries`)) as Array<{ country_code: string; levels?: string[] }>;
+      const code = countries?.[0]?.country_code;
+      if (!code || !(countries[0].levels ?? []).includes("municipio")) return false;
+
+      const periods = (await getJson(`/countries/${code}/periods?level=municipio`)) as string[];
+      if (!periods.length) return false;
+
+      const nextStore: Record<number, Record<string, StateRecord>> = {};
+      const names: Record<string, string> = {};
+      for (const period of periods) {
+        const year = parseInt(period.slice(0, 4), 10);
+        const regions = (await getJson(
+          `/countries/${code}/regions?level=municipio&period=${encodeURIComponent(period)}`,
+        )) as ApiRegion[];
+        nextStore[year] = {};
+        for (const region of regions) {
+          nextStore[year][region.code] = adapt(region, year);
+          if (region.name) names[region.code] = region.name;
+        }
+      }
+      muniStore = nextStore;
+      muniNames = names;
+      muniLoaded = true;
+      return true;
+    } catch (err) {
+      console.warn("[data] municipality data unavailable:", err);
+      return false;
+    } finally {
+      muniInFlight = null;
+    }
+  })();
+  return muniInFlight;
 }
