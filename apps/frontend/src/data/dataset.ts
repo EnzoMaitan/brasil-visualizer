@@ -46,6 +46,11 @@ let muniStore: Record<number, Record<string, StateRecord>> = {};
 let muniNames: Record<string, string> = {};
 let muniLoaded = false;
 
+// Macro-region (N2) data — loaded lazily (see loadRegionData), keyed by region code "1".."5".
+let regionStore: Record<number, Record<string, StateRecord>> = {};
+let regionNames: Record<string, string> = {};
+let regionLoaded = false;
+
 export const BR_DATA = {
   source: "loading" as DataSource,
   years: [] as number[],
@@ -75,6 +80,18 @@ export const BR_DATA = {
   },
   muniName(code: string): string | undefined {
     return muniNames[code];
+  },
+
+  // --- Macro-region accessors (empty until loadRegionData resolves) ---
+  regionReady(): boolean { return regionLoaded; },
+  allRegions(year: number): StateRecord[] {
+    return Object.values(regionStore[year] ?? {});
+  },
+  regionByCode(year: number): Record<string, StateRecord> {
+    return regionStore[year] ?? {};
+  },
+  regionName(code: string): string | undefined {
+    return regionNames[code];
   },
 };
 
@@ -203,39 +220,48 @@ export async function loadData(): Promise<DataSource> {
   return BR_DATA.source;
 }
 
-// Lazy-load municipality (N6) indicator data — only when the municipality layer is first
-// enabled (the payload is ~5,570 regions). Resolves to true if municipality data is present.
-// Never rejects: if the API has no `municipio` level (e.g. synthetic fallback), it no-ops.
-let muniInFlight: Promise<boolean> | null = null;
+// Lazy-load the indicator data for a non-default level (`municipio` / `regiao`) — only when
+// that layer is first enabled. Discovers the country + periods from the API and adapts each
+// region via `adapt()`. Never rejects: if the API lacks the level (e.g. synthetic fallback),
+// it resolves with no data so the caller can fall back gracefully.
+async function fetchLevel(
+  levelName: string,
+): Promise<{ store: Record<number, Record<string, StateRecord>>; names: Record<string, string> } | null> {
+  if (BR_DATA.source !== "live") return null;
+  const countries = (await getJson(`/countries`)) as Array<{ country_code: string; levels?: string[] }>;
+  const code = countries?.[0]?.country_code;
+  if (!code || !(countries[0].levels ?? []).includes(levelName)) return null;
 
+  const periods = (await getJson(`/countries/${code}/periods?level=${levelName}`)) as string[];
+  if (!periods.length) return null;
+
+  const nextStore: Record<number, Record<string, StateRecord>> = {};
+  const names: Record<string, string> = {};
+  for (const period of periods) {
+    const year = parseInt(period.slice(0, 4), 10);
+    const regions = (await getJson(
+      `/countries/${code}/regions?level=${levelName}&period=${encodeURIComponent(period)}`,
+    )) as ApiRegion[];
+    nextStore[year] = {};
+    for (const region of regions) {
+      nextStore[year][region.code] = adapt(region, year);
+      if (region.name) names[region.code] = region.name;
+    }
+  }
+  return { store: nextStore, names };
+}
+
+// Lazy-load municipality (N6) indicator data (~5,570 regions). Resolves true if present.
+let muniInFlight: Promise<boolean> | null = null;
 export async function loadMuniData(): Promise<boolean> {
   if (muniLoaded) return true;
   if (muniInFlight) return muniInFlight;
-  if (BR_DATA.source !== "live") return false; // synthetic fallback has no municipality feed
   muniInFlight = (async () => {
     try {
-      const countries = (await getJson(`/countries`)) as Array<{ country_code: string; levels?: string[] }>;
-      const code = countries?.[0]?.country_code;
-      if (!code || !(countries[0].levels ?? []).includes("municipio")) return false;
-
-      const periods = (await getJson(`/countries/${code}/periods?level=municipio`)) as string[];
-      if (!periods.length) return false;
-
-      const nextStore: Record<number, Record<string, StateRecord>> = {};
-      const names: Record<string, string> = {};
-      for (const period of periods) {
-        const year = parseInt(period.slice(0, 4), 10);
-        const regions = (await getJson(
-          `/countries/${code}/regions?level=municipio&period=${encodeURIComponent(period)}`,
-        )) as ApiRegion[];
-        nextStore[year] = {};
-        for (const region of regions) {
-          nextStore[year][region.code] = adapt(region, year);
-          if (region.name) names[region.code] = region.name;
-        }
-      }
-      muniStore = nextStore;
-      muniNames = names;
+      const res = await fetchLevel("municipio");
+      if (!res) return false;
+      muniStore = res.store;
+      muniNames = res.names;
       muniLoaded = true;
       return true;
     } catch (err) {
@@ -246,4 +272,27 @@ export async function loadMuniData(): Promise<boolean> {
     }
   })();
   return muniInFlight;
+}
+
+// Lazy-load macro-region (N2) indicator data (5 regions). Resolves true if present.
+let regionInFlight: Promise<boolean> | null = null;
+export async function loadRegionData(): Promise<boolean> {
+  if (regionLoaded) return true;
+  if (regionInFlight) return regionInFlight;
+  regionInFlight = (async () => {
+    try {
+      const res = await fetchLevel("regiao");
+      if (!res) return false;
+      regionStore = res.store;
+      regionNames = res.names;
+      regionLoaded = true;
+      return true;
+    } catch (err) {
+      console.warn("[data] macro-region data unavailable:", err);
+      return false;
+    } finally {
+      regionInFlight = null;
+    }
+  })();
+  return regionInFlight;
 }

@@ -179,6 +179,9 @@ button { font-family: inherit; cursor: pointer; }
 /* when municipalities carry their own data they become interactive (hover + click) */
 .muni-layer--interactive { pointer-events: auto; }
 .muni-layer--interactive .municipality { cursor: pointer; }
+/* macro-regions: 5 dissolved shapes, always interactive (hover); few enough to animate fill */
+.region-layer--interactive { pointer-events: auto; }
+.region-area { cursor: pointer; transition: fill .35s ease; }
 .map-label { font-size: 12px; font-weight: 600; fill: oklch(1 0 0 / 0.92); paint-order: stroke; stroke: oklch(0.2 0.02 260 / 0.32); stroke-width: 2.4px; stroke-linejoin: round; pointer-events: none; letter-spacing: 0.01em; }
 .map-label--active { fill: oklch(1 0 0); stroke: oklch(0.18 0.02 260 / 0.55); stroke-width: 2.8px; }
 

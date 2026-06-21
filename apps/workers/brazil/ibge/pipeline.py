@@ -144,17 +144,19 @@ class IbgePipeline:
         nivel = level.nivel
         # Gini (PNAD) and live births (Registro Civil) are not served / not viable at the
         # municipality level (no N6 data / request times out), so skip them there — the
-        # affected indicators simply degrade to absent for municipalities.
-        fine_grained = nivel != ref.LEVEL_UF_NIVEL
+        # affected indicators simply degrade to absent for municipalities. Macro-regions (N2)
+        # have the full set (only 5 rows), so this only applies to N6.
+        is_muni = nivel == ref.LEVEL_MUNI_NIVEL
 
         population = self._safe_fetch(ref.Q_POPULATION, nivel)[ref.Q_POPULATION.variables[0]]
         area = self._safe_fetch(ref.Q_AREA, nivel)[ref.Q_AREA.variables[0]]
         literacy = self._safe_fetch(ref.Q_LITERACY, nivel)[ref.Q_LITERACY.variables[0]]
-        births = {} if fine_grained else self._safe_fetch(ref.Q_LIVE_BIRTHS, nivel)[ref.Q_LIVE_BIRTHS.variables[0]]
+        births = {} if is_muni else self._safe_fetch(ref.Q_LIVE_BIRTHS, nivel)[ref.Q_LIVE_BIRTHS.variables[0]]
         residents_total = self._safe_fetch(ref.Q_RESIDENTS_TOTAL, nivel)[ref.Q_RESIDENTS_TOTAL.variables[0]]
         residents_urban = self._safe_fetch(ref.Q_RESIDENTS_URBAN, nivel)[ref.Q_RESIDENTS_URBAN.variables[0]]
-        gdp = self._fetch_gdp(nivel, split=fine_grained)
-        gini = {} if fine_grained else self._safe_fetch(ref.Q_GINI, nivel)[ref.Q_GINI.variables[0]]
+        # The combined 6-variable GDP query 500s at N6 (response too large); split it there only.
+        gdp = self._fetch_gdp(nivel, split=is_muni)
+        gini = {} if is_muni else self._safe_fetch(ref.Q_GINI, nivel)[ref.Q_GINI.variables[0]]
         hh_total = self._safe_fetch(ref.Q_HOUSEHOLDS_TOTAL, nivel)[ref.HH_VAR]
         hh_water = self._safe_fetch(ref.Q_HOUSEHOLDS_WATER, nivel)[ref.HH_VAR]
         hh_sewage = self._safe_fetch(ref.Q_HOUSEHOLDS_SEWAGE, nivel)[ref.HH_VAR]
@@ -229,6 +231,7 @@ class IbgePipeline:
         if limit:
             codes = codes[:limit]
         is_uf = level.nivel == ref.LEVEL_UF_NIVEL
+        is_muni = level.nivel == ref.LEVEL_MUNI_NIVEL
         regions: list[RegionData] = []
 
         for code in codes:
@@ -238,11 +241,12 @@ class IbgePipeline:
                 country_code=COUNTRY_CODE,
                 level=level.level_name,
                 code=code,
-                # Municipality names come only from the live IBGE list; fall back to the code.
+                # Municipality/region names come from the live IBGE list; fall back to the code.
                 name=names.get(code, uf.name if uf else code),
                 period=SNAPSHOT_PERIOD,
-                # A municipality's parent is its UF — the first two digits of its IBGE code.
-                parent_code=None if is_uf else code[:2],
+                # Only a municipality has a parent (its UF — the first two digits of its code);
+                # states and macro-regions are top-level.
+                parent_code=code[:2] if is_muni else None,
                 abbrev=uf.abbrev if uf else None,
                 source=PRIMARY_SOURCE,
             )

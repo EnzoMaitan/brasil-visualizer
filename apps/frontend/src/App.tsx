@@ -4,14 +4,15 @@ import { VizContext } from "./context/VizContext";
 import type { VizContextValue } from "./context/VizContext";
 import { makeT } from "./i18n";
 import type { Lang } from "./data/types";
-import { BR_DATA, loadData, loadMuniData } from "./data/dataset";
+import { BR_DATA, loadData, loadMuniData, loadRegionData } from "./data/dataset";
 import { loadMunicipalities } from "./data/municipalities";
 import type { MuniPath } from "./data/types";
 import { MODE_BY_KEY, makeScale, isModeAvailable, availableModeKeys, PALETTES, paletteKeys } from "./viz/modes";
 import type { Mode } from "./viz/modes";
 import { BrazilMap } from "./components/BrazilMap";
-import { Legend, Tooltip, MuniTooltip, Detail, Overview } from "./components/panels";
-import { ModeSwitcher, Search, YearSlider, LangToggle, GearButton, MunicipalityToggle, Brand } from "./components/controls";
+import type { MapLayer } from "./components/BrazilMap";
+import { Legend, Tooltip, PlaceTooltip, Detail, Overview } from "./components/panels";
+import { ModeSwitcher, Search, YearSlider, LangToggle, GearButton, LayerToggle, MuniIcon, RegionIcon, Brand } from "./components/controls";
 import { useTweaks } from "./components/tweaks/useTweaks";
 import type { TweakValues } from "./components/tweaks/useTweaks";
 import { TweaksPanel, TweakSection, TweakSlider, TweakToggle, TweakSelect } from "./components/tweaks/TweaksPanel";
@@ -51,11 +52,18 @@ export default function App() {
   const [tw, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [ready, setReady] = useState(false);
-  const [showMuni, setShowMuni] = useState<boolean>(() => ls.get("bv.showMuni", false));
+  // Active map layer — states / municipalities / macro-regions are mutually exclusive.
+  const [layer, setLayer] = useState<MapLayer>(() => {
+    const v = ls.get<MapLayer | boolean>("bv.layer", ls.get("bv.showMuni", false) ? "municipio" : "uf");
+    return v === "municipio" || v === "regiao" ? v : "uf";
+  });
   const [muniGeo, setMuniGeo] = useState<MuniPath[] | null>(null);
   const [muniLoading, setMuniLoading] = useState(false);
   const [muniReady, setMuniReady] = useState(false); // municipality indicator data loaded
+  const [regionLoading, setRegionLoading] = useState(false);
+  const [regionReady, setRegionReady] = useState(false); // macro-region indicator data loaded
   const [hoveredMuni, setHoveredMuni] = useState<string | null>(null);
+  const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
   const tipRef = useRef<HTMLDivElement | null>(null);
 
   // Load the live dataset once (falls back to synthetic if the API is down).
@@ -69,19 +77,32 @@ export default function App() {
   useEffect(() => ls.set("bv.lang", lang), [lang]);
   useEffect(() => ls.set("bv.mode", modeKey), [modeKey]);
   useEffect(() => ls.set("bv.year", year), [year]);
-  useEffect(() => ls.set("bv.showMuni", showMuni), [showMuni]);
+  useEffect(() => ls.set("bv.layer", layer), [layer]);
 
-  // Lazy-load the municipality mesh (its own chunk) AND the municipality indicator data the
-  // first time the layer is needed — either toggled on this session or restored from a
-  // persisted "on" preference. Both are fetched on demand to keep initial load fast.
+  // Lazy-load the municipality mesh (its own chunk) AND indicator data the first time that
+  // layer is needed — toggled this session or restored from a persisted preference. Fetched
+  // on demand to keep initial load fast.
   useEffect(() => {
-    if (!showMuni || muniLoading || (muniGeo && muniReady)) return;
+    if (layer !== "municipio" || muniLoading || (muniGeo && muniReady)) return;
     setMuniLoading(true);
     Promise.all([loadMunicipalities(), loadMuniData()])
       .then(([geo, dataOk]) => { setMuniGeo(geo); setMuniReady(dataOk); })
       .catch((err) => console.warn("[muni] failed to load municipality layer:", err))
       .finally(() => setMuniLoading(false));
-  }, [showMuni, muniGeo, muniReady, muniLoading]);
+  }, [layer, muniGeo, muniReady, muniLoading]);
+
+  // Lazy-load macro-region indicator data (5 rows; geometry is bundled) on first use.
+  useEffect(() => {
+    if (layer !== "regiao" || regionLoading || regionReady) return;
+    setRegionLoading(true);
+    loadRegionData()
+      .then((ok) => setRegionReady(ok))
+      .catch((err) => console.warn("[region] failed to load macro-region data:", err))
+      .finally(() => setRegionLoading(false));
+  }, [layer, regionReady, regionLoading]);
+
+  // Mutually-exclusive toggle: turn a layer on, or back to states if it's already active.
+  const toggleLayer = (l: MapLayer) => setLayer((cur) => (cur === l ? "uf" : l));
 
   const t = useMemo(() => makeT(lang), [lang]);
   const records = useMemo(() => (ready ? BR_DATA.all(year) : []), [year, ready]);
@@ -130,7 +151,7 @@ export default function App() {
   // Municipality choropleth: when the layer is on and the active mode has N6 data, color each
   // municipality by its OWN value on a municipality-derived scale; otherwise it falls back to
   // inheriting the parent state's color (handled in BrazilMap). The legend follows suit.
-  const muniOn = showMuni && muniReady;
+  const muniOn = layer === "municipio" && muniReady;
   const muniByCode = useMemo(() => (muniOn ? BR_DATA.muniByCode(year) : {}), [muniOn, year]);
   const muniRecords = useMemo(() => (muniOn ? BR_DATA.allMuni(year) : []), [muniOn, year]);
   const muniHasData = useMemo(
@@ -141,12 +162,31 @@ export default function App() {
     () => (muniHasData ? makeScale(mode, muniRecords, tw.palette, { robust: true }) : null),
     [muniHasData, mode, muniRecords, tw.palette],
   );
+
+  // Macro-region choropleth: same pattern at N2. No outlier wash-out (only 5 regions), so the
+  // scale is plain. Falls through to the state choropleth for modes without region data.
+  const regionOn = layer === "regiao" && regionReady;
+  const regionByCode = useMemo(() => (regionOn ? BR_DATA.regionByCode(year) : {}), [regionOn, year]);
+  const regionRecords = useMemo(() => (regionOn ? BR_DATA.allRegions(year) : []), [regionOn, year]);
+  const regionHasData = useMemo(
+    () => regionRecords.length > 0 && isModeAvailable(mode, regionRecords),
+    [regionRecords, mode],
+  );
+  const regionScale = useMemo(
+    () => (regionHasData ? makeScale(mode, regionRecords, tw.palette) : null),
+    [regionHasData, mode, regionRecords, tw.palette],
+  );
+
   // The legend reflects whatever choropleth is actually on screen.
-  const displayScale = muniHasData ? muniScale! : scale;
+  const displayScale = muniHasData ? muniScale! : regionHasData ? regionScale! : scale;
 
   const onHoverMuni = useCallback((code: string | null) => {
     setHoveredMuni(code);
     if (code) setHovered(null); // muni tooltip replaces the state tooltip while hovering munis
+  }, []);
+  const onHoverRegion = useCallback((code: string | null) => {
+    setHoveredRegion(code);
+    if (code) setHovered(null);
   }, []);
 
   const ctx = useMemo<VizContextValue>(() => ({ t, locale: lang, lang, tweaks: tw }), [t, lang, tw]);
@@ -183,7 +223,10 @@ export default function App() {
           </div>
           <div className="topbar-right">
             <Search onSelect={(c) => setSelected(c)} onHover={setHovered} />
-            <MunicipalityToggle value={showMuni} loading={muniLoading} onChange={setShowMuni} />
+            <LayerToggle active={layer === "regiao"} loading={regionLoading}
+              onToggle={() => toggleLayer("regiao")} label={t("ui.regions")}><RegionIcon /></LayerToggle>
+            <LayerToggle active={layer === "municipio"} loading={muniLoading}
+              onToggle={() => toggleLayer("municipio")} label={t("ui.municipalities")}><MuniIcon /></LayerToggle>
             <LangToggle lang={lang} onChange={setLang} />
             <GearButton onClick={() => setTweaksOpen((o) => !o)} />
           </div>
@@ -197,10 +240,12 @@ export default function App() {
 
           <section className="map-area">
             <BrazilMap records={records} mode={mode} scale={scale}
-              hovered={hovered} selected={selected}
-              municipalities={showMuni ? muniGeo : null}
+              hovered={hovered} selected={selected} layer={layer}
+              municipalities={layer === "municipio" ? muniGeo : null}
               muniByCode={muniByCode} muniScale={muniScale} hoveredMuni={hoveredMuni}
-              onHover={setHovered} onHoverMuni={onHoverMuni} onSelect={setSelected} onMove={onMove} />
+              regionByCode={regionByCode} regionScale={regionScale} hoveredRegion={hoveredRegion}
+              onHover={setHovered} onHoverMuni={onHoverMuni} onHoverRegion={onHoverRegion}
+              onSelect={setSelected} onMove={onMove} />
             <Legend mode={mode} scale={displayScale} />
           </section>
 
@@ -211,9 +256,12 @@ export default function App() {
           </aside>
         </main>
 
-        <div className="tooltip-layer" ref={tipRef} style={{ display: (hovered || (hoveredMuni && muniHasData)) ? "block" : "none" }}>
-          {hoveredMuni && muniHasData
-            ? <MuniTooltip code={hoveredMuni} mode={mode} scale={muniScale!} rec={muniByCode[hoveredMuni]} name={BR_DATA.muniName(hoveredMuni)} />
+        <div className="tooltip-layer" ref={tipRef}
+          style={{ display: (hovered || (hoveredMuni && muniHasData) || (hoveredRegion && regionHasData)) ? "block" : "none" }}>
+          {hoveredRegion && regionHasData
+            ? <PlaceTooltip code={hoveredRegion} mode={mode} scale={regionScale!} rec={regionByCode[hoveredRegion]} name={BR_DATA.regionName(hoveredRegion)} caption={t("ui.region")} />
+            : hoveredMuni && muniHasData
+            ? <PlaceTooltip code={hoveredMuni} mode={mode} scale={muniScale!} rec={muniByCode[hoveredMuni]} name={BR_DATA.muniName(hoveredMuni)} caption={t("ui.municipality")} />
             : hovered ? <Tooltip code={hovered} mode={mode} scale={scale} records={records} /> : null}
         </div>
 

@@ -3,7 +3,7 @@
 // on-map +/−/reset buttons step the zoom about the center.
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useViz } from "../context/VizContext";
-import { BR_GEO } from "../viz/projection";
+import { BR_GEO, BR_REGION_GEO } from "../viz/projection";
 import { BR_STATES_META } from "../data/states-meta";
 import type { MuniPath, StateRecord } from "../data/types";
 import type { Mode, Scale } from "../viz/modes";
@@ -63,23 +63,55 @@ const MunicipalityLayer = memo(function MunicipalityLayer({
   );
 });
 
+// ---- Macro-region overlay -----------------------------------------------
+// The 5 dissolved IBGE macro-regions (geometry bundled in BR_REGION_GEO), each colored by
+// its OWN value. Only rendered when the active mode has region (N2) data; otherwise the
+// region layer is omitted and the state choropleth shows through (fallback). Memoized like
+// the municipality layer; interactive (hover → tooltip), no click (regions have no parent).
+const RegionLayer = memo(function RegionLayer({ regionByCode, scale, borderWidth, onHoverRegion }: {
+  regionByCode: Record<string, StateRecord>; scale: Scale; borderWidth: number;
+  onHoverRegion: (code: string | null) => void;
+}) {
+  return (
+    <g className="region-layer region-layer--interactive">
+      {Object.keys(BR_REGION_GEO.paths).map((code) => {
+        const rec = regionByCode[code];
+        return (
+          <path key={code} d={BR_REGION_GEO.paths[code].d} className="region-area"
+            fill={rec ? scale.colorOf(rec) : "var(--state-empty)"}
+            stroke="var(--state-stroke)" strokeWidth={borderWidth}
+            vectorEffect="non-scaling-stroke" strokeLinejoin="round"
+            onMouseEnter={() => onHoverRegion(code)} />
+        );
+      })}
+    </g>
+  );
+});
+
+export type MapLayer = "uf" | "municipio" | "regiao";
+
 export interface BrazilMapProps {
   records: StateRecord[];
   mode: Mode;
   scale: Scale;
   hovered: string | null;
   selected: string | null;
+  layer: MapLayer;
   municipalities: MuniPath[] | null;
   muniByCode: Record<string, StateRecord>;
   muniScale: Scale | null;
   hoveredMuni: string | null;
+  regionByCode: Record<string, StateRecord>;
+  regionScale: Scale | null;
+  hoveredRegion: string | null;
   onHover: (code: string | null) => void;
   onHoverMuni: (code: string | null) => void;
+  onHoverRegion: (code: string | null) => void;
   onSelect: (code: string | null) => void;
   onMove: (e: React.PointerEvent) => void;
 }
 
-export function BrazilMap({ records, mode, scale, hovered, selected, municipalities, muniByCode, muniScale, hoveredMuni, onHover, onHoverMuni, onSelect, onMove }: BrazilMapProps) {
+export function BrazilMap({ records, mode, scale, hovered, selected, layer, municipalities, muniByCode, muniScale, hoveredMuni, regionByCode, regionScale, hoveredRegion, onHover, onHoverMuni, onHoverRegion, onSelect, onMove }: BrazilMapProps) {
   const { tweaks } = useViz();
   const recByCode = useMemo(() => Object.fromEntries(records.map((r) => [r.code, r])), [records]);
   const bw = tweaks.borderWidth;
@@ -186,6 +218,9 @@ export function BrazilMap({ records, mode, scale, hovered, selected, municipalit
     return map;
   }, [municipalities]);
   const muniInteractive = muniScale != null;
+  // Region layer shows only when the active mode has N2 data (else state choropleth falls through).
+  const regionActive = layer === "regiao" && regionScale != null;
+  const muniActive = layer === "municipio" && municipalities != null;
 
   function fillFor(code: string) {
     const r = recByCode[code];
@@ -221,7 +256,7 @@ export function BrazilMap({ records, mode, scale, hovered, selected, municipalit
         viewBox={`0 0 ${W} ${H}`}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove}
         onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
-        onMouseLeave={() => { onHover(null); onHoverMuni(null); }}>
+        onMouseLeave={() => { onHover(null); onHoverMuni(null); onHoverRegion(null); }}>
         <rect x="0" y="0" width={W} height={H} fill="var(--map-bg)"
           onMouseEnter={() => onHover(null)} onClick={() => guardedSelect(null)} />
         {/* zoom/pan group */}
@@ -239,15 +274,26 @@ export function BrazilMap({ records, mode, scale, hovered, selected, municipalit
               );
             })}
           </g>
-          {municipalities ? (
-            <MunicipalityLayer paths={municipalities} recByCode={recByCode} scale={scale}
+          {muniActive ? (
+            <MunicipalityLayer paths={municipalities!} recByCode={recByCode} scale={scale}
               muniByCode={muniByCode} muniScale={muniScale} muniProp={mode.prop ?? null} borderWidth={bw}
               interactive={muniInteractive} onHoverMuni={onHoverMuni} onSelectParent={selectParent} />
           ) : null}
+          {regionActive ? (
+            <RegionLayer regionByCode={regionByCode} scale={regionScale!} borderWidth={bw}
+              onHoverRegion={onHoverRegion} />
+          ) : null}
           {/* hovered-municipality outline (own-data mode) */}
-          {muniInteractive && hoveredMuni && muniPathByCode.has(hoveredMuni) ? (
+          {muniActive && muniInteractive && hoveredMuni && muniPathByCode.has(hoveredMuni) ? (
             <path d={muniPathByCode.get(hoveredMuni)!}
               style={{ fill: "none", stroke: "var(--sel-stroke)", strokeWidth: bw + 1.4,
+                filter: blur ? `drop-shadow(0 0 ${blur}px var(--glow-color))` : "none", pointerEvents: "none" }}
+              vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+          ) : null}
+          {/* hovered-region outline */}
+          {regionActive && hoveredRegion && BR_REGION_GEO.paths[hoveredRegion] ? (
+            <path d={BR_REGION_GEO.paths[hoveredRegion].d}
+              style={{ fill: "none", stroke: "var(--sel-stroke)", strokeWidth: bw + 1.8,
                 filter: blur ? `drop-shadow(0 0 ${blur}px var(--glow-color))` : "none", pointerEvents: "none" }}
               vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
           ) : null}

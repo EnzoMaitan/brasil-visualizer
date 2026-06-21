@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--level",
         default="uf",
-        choices=("uf", "municipio", "all"),
+        choices=("uf", "municipio", "regiao", "all"),
         help="with --fetch, which level(s) to collect (default: uf)",
     )
     args = parser.parse_args(argv)

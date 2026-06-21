@@ -87,11 +87,11 @@ export function Tooltip({ code, mode, scale, records }: { code: string; mode: Mo
   );
 }
 
-// ---- Municipality tooltip ----------------------------------------------
-// Lighter than the state Tooltip: municipalities carry a name + the active metric only
-// (no region/capital/area metadata, no multi-year trend). Colored by the muni scale.
-export function MuniTooltip({ code, mode, scale, rec, name }: {
-  code: string; mode: Mode; scale: Scale; rec: StateRecord | undefined; name?: string;
+// ---- Place tooltip (municipality / macro-region) ------------------------
+// Lighter than the state Tooltip: these carry a name + a caption + the active metric only
+// (no capital/area metadata, no multi-year trend). Colored by the active layer's scale.
+export function PlaceTooltip({ code, mode, scale, rec, name, caption }: {
+  code: string; mode: Mode; scale: Scale; rec: StateRecord | undefined; name?: string; caption: string;
 }) {
   const { t, locale } = useViz();
   if (!rec) return null;
@@ -103,7 +103,7 @@ export function MuniTooltip({ code, mode, scale, rec, name }: {
       <div className="tooltip-head">
         <span className="tooltip-name">{name || code}</span>
       </div>
-      <div className="tooltip-region">{t("ui.municipality")}</div>
+      <div className="tooltip-region">{caption}</div>
       <div className="tooltip-metric">
         <span className="tooltip-label">{t("ind." + spec.prop)}</span>
         <span className="tooltip-value">

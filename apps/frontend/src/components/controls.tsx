@@ -1,5 +1,5 @@
 // Top bar (brand, year slider, search, language, data badge) + the mode-switcher rail.
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useViz, statsOf } from "../context/VizContext";
 import { PALETTES, MODES, THEME_ORDER, sampleRamp, MODE_BY_KEY } from "../viz/modes";
 import type { Mode } from "../viz/modes";
@@ -152,27 +152,40 @@ export function LangToggle({ lang, onChange }: { lang: Lang; onChange: (l: Lang)
   );
 }
 
-// ---- Municipality borders toggle ----
-export function MunicipalityToggle({ value, loading, onChange }: {
-  value: boolean; loading: boolean; onChange: (v: boolean) => void;
+// ---- Layer toggle (mutually exclusive: states / municipalities / macro-regions) ----
+// Generic toggle button; the active one stays lit. Mutual exclusivity is enforced by the
+// parent holding a single `layer` enum (clicking one layer deactivates the others).
+export function LayerToggle({ active, loading, onToggle, label, children }: {
+  active: boolean; loading: boolean; onToggle: () => void; label: string; children: ReactNode;
 }) {
-  const { t } = useViz();
-  const label = t("ui.municipalities");
   return (
     <button
-      className={"tool-btn tool-btn--toggle" + (value ? " is-active" : "")}
-      onClick={() => onChange(!value)}
-      title={label} aria-label={label} aria-pressed={value}>
-      {loading ? (
-        <span className="tool-spinner" aria-hidden="true" />
-      ) : (
-        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
-          strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" />
-          <path d="M9 3v15M15 6v15" />
-        </svg>
-      )}
+      className={"tool-btn tool-btn--toggle" + (active ? " is-active" : "")}
+      onClick={onToggle}
+      title={label} aria-label={label} aria-pressed={active}>
+      {loading ? <span className="tool-spinner" aria-hidden="true" /> : children}
     </button>
+  );
+}
+
+// Folded-map icon → municipality borders.
+export function MuniIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+      strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" />
+      <path d="M9 3v15M15 6v15" />
+    </svg>
+  );
+}
+
+// A few large blocks → macro-regions.
+export function RegionIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+      strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 3h8v6H3z M3 12h8v9H3z M14 3h7v9h-7z M14 15h7v6h-7z" />
+    </svg>
   );
 }
 

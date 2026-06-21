@@ -2,6 +2,7 @@
 // Equirectangular projection with cos(centerLat) aspect correction — accurate
 // enough for a national choropleth and keeps Brazil's familiar silhouette.
 import { BR_STATES_GEOJSON } from "../data/br-states.geo";
+import BR_REGIONS_GEO_RAW from "../data/br-regions.geo";
 import type { MuniFeature, Position, StateFeature } from "../data/types";
 
 export interface StatePath {
@@ -106,3 +107,19 @@ export function geometryToPath(geom: MuniFeature["geometry"]): string {
   for (const poly of polys) for (const ring of poly) d += ringPath(ring);
   return d;
 }
+
+// Macro-regions (N2): only 5 dissolved polygons, so they're projected eagerly at load
+// (same transform as the states) and keyed by IBGE region code "1".."5". Centroid is the
+// largest outer ring's centroid, for an optional label.
+const regionPaths: Record<string, { d: string; centroid: [number, number] }> = {};
+for (const f of BR_REGIONS_GEO_RAW.features) {
+  const polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
+  let best = { area: -1, cx: 0, cy: 0 };
+  for (const poly of polys) {
+    const st = ringStats(poly[0]);
+    if (st.area > best.area) best = st;
+  }
+  regionPaths[f.code] = { d: geometryToPath(f.geometry), centroid: [best.cx, best.cy] };
+}
+
+export const BR_REGION_GEO = { paths: regionPaths };

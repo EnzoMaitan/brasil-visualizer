@@ -25,7 +25,7 @@ import sys
 from worker_sdk import BaseWorker, RegionData
 
 from aneel import AneelClient, AneelPipeline
-from ibge import MUNI_LEVEL, IbgePipeline, SidraClient
+from ibge import MUNI_LEVEL, REGION_LEVEL, IbgePipeline, SidraClient
 from siconfi import SiconfiClient, SiconfiPipeline
 from snapshot import write_snapshot
 
@@ -88,6 +88,16 @@ class BrazilWorker(BaseWorker):
         with SidraClient() as client:
             return IbgePipeline(client).build_regions(level=MUNI_LEVEL, limit=self._limit)
 
+    def fetch_regions(self) -> list[RegionData]:
+        """
+        Collect macro-region-level (N2) data — IBGE only (the 5 grandes regiões).
+
+        Like municipalities, ANEEL/SICONFI are UF-only and skipped, so regions carry the IBGE
+        themes. Unlike N6, N2 has the full set (gini, births) since it is only 5 rows.
+        """
+        with SidraClient() as client:
+            return IbgePipeline(client).build_regions(level=REGION_LEVEL, limit=self._limit)
+
     @staticmethod
     def _enrich(name: str, run) -> None:
         """Run a source's enrichment, logging and swallowing failures (never abort)."""
@@ -98,10 +108,12 @@ class BrazilWorker(BaseWorker):
 
 
 def collect_regions(worker: "BrazilWorker", level: str) -> list[RegionData]:
-    """Collect regions for the requested level(s): ``uf`` (default), ``municipio``, or ``all``."""
+    """Collect regions for the requested level(s): ``uf`` (default), ``municipio``, ``regiao``, or ``all``."""
     regions: list[RegionData] = []
     if level in ("uf", "all"):
         regions += worker.fetch()
+    if level in ("regiao", "all"):
+        regions += worker.fetch_regions()
     if level in ("municipio", "all"):
         regions += worker.fetch_municipalities()
     return regions
@@ -148,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--level",
         default="uf",
-        choices=("uf", "municipio", "all"),
+        choices=("uf", "municipio", "regiao", "all"),
         help="which geographic level(s) to collect (default: uf — current behavior)",
     )
     args = parser.parse_args(argv)
